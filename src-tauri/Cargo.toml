@@ -1,0 +1,38 @@
+[package]
+name = "extrovert-native"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "extrovert_native_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls", "blocking"], default-features = false }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-rustls"] }
+jsonwebtoken = "9"
+rand = "0.8"
+base64 = "0.22"
+url = "2"
+thiserror = "1"
+anyhow = "1"
+zeroize = { version = "1", features = ["derive"] }
+governor = "0.6"
+eventsource-stream = "0.2"
+futures-util = "0.3"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+rsa = { version = "0.9", features = ["sha2"] }
+urlencoding = "2"
