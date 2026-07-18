@@ -195,3 +195,11 @@ export async function roomSendMessage(
 ): Promise<void> {
   await invoke("room_send_message", { roomId, channelId, body });
 }
+
+export async function e2eeUnlock(password: string): Promise<void> {
+  return invoke<void>("e2ee_unlock", { password });
+}
+
+export async function e2eeStatus(): Promise<boolean> {
+  return invoke<boolean>("e2ee_status");
+}

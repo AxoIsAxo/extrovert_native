@@ -11,6 +11,8 @@ pub enum Error {
     Oauth(String),
     #[error("jwt verification failed: {0}")]
     Jwt(#[from] jsonwebtoken::errors::Error),
+    #[error("e2ee error: {0}")]
+    E2ee(String),
     #[error("api error {status}: {detail}")]
     Api { status: u16, detail: String },
     #[error("json error: {0}")]

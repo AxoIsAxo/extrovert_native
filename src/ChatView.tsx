@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { DirectMessage, Paginated } from "./lib/invoke";
-import { conversationMessages, conversationSend } from "./lib/invoke";
+import { conversationMessages, conversationSend, e2eeUnlock, e2eeStatus } from "./lib/invoke";
 
 export default function ChatView({ username, onBack }: { username: string; onBack: () => void }) {
   const [data, setData] = useState<Paginated<DirectMessage>>({ data: [], pagination: { next: null } });
@@ -8,17 +8,48 @@ export default function ChatView({ username, onBack }: { username: string; onBac
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [e2eeReady, setE2eeReady] = useState<boolean | null>(null);
+  const [password, setPassword] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlockError, setUnlockError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    e2eeStatus().then((ready) => {
+      if (ready) {
+        setE2eeReady(true);
+        loadMessages();
+      } else {
+        setE2eeReady(false);
+        setLoading(false);
+      }
+    });
+  }, [username]);
+
+  function loadMessages() {
     setLoading(true);
     conversationMessages(username)
       .then((res) => setData(res))
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [username]);
+  }
 
   useEffect(() => { bottomRef.current?.scrollIntoView(); }, [data.data]);
+
+  async function handleUnlock() {
+    if (!password.trim() || unlocking) return;
+    setUnlocking(true);
+    setUnlockError(null);
+    try {
+      await e2eeUnlock(password.trim());
+      setE2eeReady(true);
+      loadMessages();
+    } catch (e) {
+      setUnlockError(String(e));
+    } finally {
+      setUnlocking(false);
+    }
+  }
 
   async function handleSend() {
     if (!body.trim() || sending) return;
@@ -40,6 +71,41 @@ export default function ChatView({ username, onBack }: { username: string; onBac
       const older = await conversationMessages(username, data.pagination.next);
       setData((prev) => ({ data: [...older.data, ...prev.data], pagination: older.pagination }));
     } catch {}
+  }
+
+  if (e2eeReady === false) {
+    return (
+      <div className="flex flex-col min-h-0 flex-1">
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-outline-variant">
+          <button onClick={onBack} className="text-on-surface-variant hover:text-on-surface transition-colors text-sm">← Back</button>
+          <span className="font-semibold text-sm">@{username}</span>
+        </div>
+        <div className="flex-1 flex items-center justify-center px-6">
+          <div className="max-w-sm w-full text-center space-y-4">
+            <div className="w-12 h-12 mx-auto rounded-full bg-surface-container-high flex items-center justify-center text-lg">🔒</div>
+            <h3 className="font-semibold text-on-surface">Unlock End-to-End Encryption</h3>
+            <p className="text-sm text-on-surface-variant">Enter your password to decrypt your private key and enable secure messaging.</p>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleUnlock()}
+              placeholder="Password"
+              className="w-full bg-surface-container-low border border-outline-variant rounded-lg px-4 py-2.5 text-sm text-on-surface placeholder-on-surface-variant focus:outline-none focus:border-primary"
+            />
+            {unlockError && <div className="text-error text-sm">{unlockError}</div>}
+            <button
+              onClick={handleUnlock}
+              disabled={!password.trim() || unlocking}
+              className="w-full px-6 py-2.5 rounded-btn text-sm font-semibold text-on-primary disabled:opacity-50 transition-opacity"
+              style={{ background: "var(--primary)" }}
+            >
+              {unlocking ? "Unlocking…" : "Unlock"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

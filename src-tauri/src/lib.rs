@@ -2,6 +2,7 @@ mod api;
 mod auth;
 mod commands;
 mod config;
+mod crypto;
 mod error;
 mod models;
 mod urlfix;
@@ -82,6 +83,8 @@ pub fn run() {
             commands::room_detail,
             commands::room_messages,
             commands::room_send_message,
+            commands::e2ee_unlock,
+            commands::e2ee_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

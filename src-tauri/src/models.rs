@@ -183,3 +183,16 @@ pub struct Paginated<T> {
     #[serde(default)]
     pub pagination: Pagination,
 }
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct MyKeysResponse {
+    pub public_key: Option<String>,
+    pub encrypted_private_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct RecipientKeyResponse {
+    pub public_key: Option<String>,
+}

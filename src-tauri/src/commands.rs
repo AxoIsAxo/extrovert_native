@@ -3,6 +3,7 @@ use tauri::State;
 use crate::api::{build_authorize_url, verify_id_token, PENDING, ApiClient};
 use crate::auth;
 use crate::config;
+use crate::crypto::e2ee;
 use crate::error::Result;
 use crate::models::*;
 use crate::urlfix;
@@ -198,7 +199,7 @@ pub async fn conversation_messages(
     cursor: Option<String>,
     limit: Option<u32>,
 ) -> Result<Paginated<DirectMessage>> {
-    state
+    let mut paginated: Paginated<DirectMessage> = state
         .get_with_query(
             &format!("/api/v1/conversations/{}", username),
             &[
@@ -206,7 +207,25 @@ pub async fn conversation_messages(
                 ("limit", limit.map(|l| l.to_string())),
             ],
         )
-        .await
+        .await?;
+
+    if let Some(priv_key) = e2ee::get_private_key() {
+        let user_id = e2ee::get_user_id();
+        for msg in &mut paginated.data {
+            let key = if msg.from_id == user_id.as_deref().unwrap_or("") {
+                msg.key_for_sender.as_deref()
+            } else {
+                msg.key_for_recipient.as_deref()
+            };
+            if let Some(k) = key {
+                if let Ok(plain) = e2ee::decrypt_message(&msg.body, k, &priv_key) {
+                    msg.body = plain;
+                }
+            }
+        }
+    }
+
+    Ok(paginated)
 }
 
 #[tauri::command]
@@ -215,12 +234,108 @@ pub async fn conversation_send(
     username: String,
     body: String,
 ) -> Result<DirectMessage> {
-    state
-        .post(
-            &format!("/api/v1/conversations/{}/messages", username),
-            &serde_json::json!({ "body": body }),
-        )
-        .await
+    let is_sticker = body.starts_with("/uploads/stickers/");
+
+    if !is_sticker {
+        let priv_key = e2ee::get_private_key()
+            .ok_or_else(|| crate::error::Error::E2ee("E2EE not unlocked. Enter your password first.".into()))?;
+        let own_pub = e2ee::get_public_key()
+            .ok_or_else(|| crate::error::Error::E2ee("E2EE not unlocked.".into()))?;
+
+        let key_resp: RecipientKeyResponse = state
+            .get(&format!("/api/v1/conversations/{}/keys", username))
+            .await?;
+        let recipient_pem = key_resp
+            .public_key
+            .ok_or_else(|| crate::error::Error::E2ee(format!("{username} has no public key yet")))?;
+
+        let (enc_body, key_for_sender, key_for_recipient) =
+            e2ee::encrypt_message(&body, &recipient_pem, &own_pub)?;
+
+        let mut msg: DirectMessage = state
+            .post(
+                &format!("/api/v1/conversations/{}/messages", username),
+                &serde_json::json!({
+                    "body": enc_body,
+                    "key_for_sender": key_for_sender,
+                    "key_for_recipient": key_for_recipient,
+                }),
+            )
+            .await?;
+
+        let user_id = e2ee::get_user_id();
+        let my_key = if msg.from_id == user_id.as_deref().unwrap_or("") {
+            msg.key_for_sender.as_deref()
+        } else {
+            msg.key_for_recipient.as_deref()
+        };
+        if let Some(k) = my_key {
+            if let Ok(plain) = e2ee::decrypt_message(&msg.body, k, &priv_key) {
+                msg.body = plain;
+            }
+        }
+
+        Ok(msg)
+    } else {
+        state
+            .post(
+                &format!("/api/v1/conversations/{}/messages", username),
+                &serde_json::json!({ "body": body }),
+            )
+            .await
+    }
+}
+
+#[tauri::command]
+pub async fn e2ee_unlock(
+    state: State<'_, ApiClient>,
+    password: String,
+) -> Result<()> {
+    let account: Account = state.get("/api/v1/accounts/verify_credentials").await?;
+    let user_id = account.id.clone();
+    let username = account.username.clone();
+
+    let kek = e2ee::derive_kek(&password, &username);
+
+    let my_keys: MyKeysResponse = state.get("/api/v1/conversations/keys").await?;
+
+    let (private_key, public_key_pem, public_key) = if let Some(enc_priv) = &my_keys.encrypted_private_key {
+        let priv_key = e2ee::unwrap_private_key(enc_priv, &kek)?;
+        let pub_pem = my_keys.public_key.unwrap_or_default();
+        let pub_key = e2ee::public_key_from_pem_b64(&pub_pem)?;
+        (priv_key, pub_pem, pub_key)
+    } else {
+        let (priv_key, pub_pem) = e2ee::generate_key_pair()?;
+        let enc_priv = e2ee::wrap_private_key(&priv_key, &kek)?;
+        let pub_key = e2ee::public_key_from_pem_b64(&pub_pem)?;
+
+        state
+            .post::<serde_json::Value, _>(
+                "/api/v1/conversations/keys",
+                &serde_json::json!({
+                    "public_key": pub_pem,
+                    "encrypted_private_key": enc_priv,
+                }),
+            )
+            .await?;
+
+        (priv_key, pub_pem, pub_key)
+    };
+
+    e2ee::set_state(crate::crypto::e2ee::E2eeContext {
+        user_id,
+        kek,
+        private_key,
+        public_key,
+        public_key_pem,
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn e2ee_status() -> Result<bool> {
+    Ok(e2ee::is_ready())
 }
 
 #[tauri::command]
