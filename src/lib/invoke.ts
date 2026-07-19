@@ -203,3 +203,7 @@ export async function e2eeUnlock(password: string): Promise<void> {
 export async function e2eeStatus(): Promise<boolean> {
   return invoke<boolean>("e2ee_status");
 }
+
+export async function fetchAvatar(path: string): Promise<string> {
+  return invoke<string>("fetch_avatar", { path });
+}

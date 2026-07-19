@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Status } from "./lib/invoke";
 import { likePost, unlikePost, reblogPost } from "./lib/invoke";
+import Avatar from "./Avatar";
 
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
@@ -43,13 +44,7 @@ export default function PostCard({
       <div className="flex gap-3">
         {s.account && (
           <button onClick={() => onNavigateProfile(s.account!.id)} className="shrink-0">
-            {s.account.avatar ? (
-              <img src={s.account.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
-            ) : (
-              <div className="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center text-sm font-semibold text-on-surface-variant">
-                {s.account.display_name.charAt(0).toUpperCase()}
-              </div>
-            )}
+            <Avatar src={s.account.avatar} name={s.account.display_name} />
           </button>
         )}
         <div className="flex-1 min-w-0">

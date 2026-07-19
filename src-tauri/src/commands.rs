@@ -1,3 +1,5 @@
+use base64::engine::general_purpose;
+use base64::Engine;
 use tauri::State;
 
 use crate::api::{build_authorize_url, verify_id_token, PENDING, ApiClient};
@@ -8,10 +10,22 @@ use crate::error::Result;
 use crate::models::*;
 use crate::urlfix;
 
-fn fix_account(a: &mut Account) {
-    if let Some(ref av) = a.avatar.clone() {
-        a.avatar = Some(urlfix::absolutize(av, config::issuer()).unwrap_or(av.clone()));
+fn fix_avatar(v: &mut Option<String>) {
+    if let Some(ref av) = v.clone() {
+        *v = Some(urlfix::absolutize(av, config::issuer()).unwrap_or(av.clone()));
     }
+}
+
+fn fix_account(a: &mut Account) {
+    fix_avatar(&mut a.avatar);
+}
+
+fn fix_conversation(c: &mut Conversation) {
+    fix_avatar(&mut c.avatar);
+}
+
+fn fix_room_message(m: &mut RoomMessage) {
+    fix_avatar(&mut m.avatar);
 }
 
 fn fix_status(s: &mut Status) {
@@ -186,9 +200,12 @@ pub async fn unfollow_user(
 pub async fn conversations_list(
     state: State<'_, ApiClient>,
 ) -> Result<Vec<Conversation>> {
-    let conversations: Vec<Conversation> = state
+    let mut conversations: Vec<Conversation> = state
         .get("/api/v1/conversations")
         .await?;
+    for c in &mut conversations {
+        fix_conversation(c);
+    }
     Ok(conversations)
 }
 
@@ -360,12 +377,16 @@ pub async fn room_messages(
     channel_id: String,
     cursor: Option<String>,
 ) -> Result<MessagesResponse> {
-    state
+    let mut resp: MessagesResponse = state
         .get_with_query(
             &format!("/api/v1/rooms/{}/channels/{}/messages", room_id, channel_id),
             &[("cursor", cursor)],
         )
-        .await
+        .await?;
+    for m in &mut resp.messages {
+        fix_room_message(m);
+    }
+    Ok(resp)
 }
 
 #[tauri::command]
@@ -381,6 +402,27 @@ pub async fn room_send_message(
             &serde_json::json!({ "body": body }),
         )
         .await
+}
+
+#[tauri::command]
+pub async fn fetch_avatar(
+    path: String,
+) -> Result<String> {
+    let url = if path.starts_with("http://") || path.starts_with("https://") {
+        path
+    } else {
+        format!("{}{}", config::issuer(), path)
+    };
+    let client = reqwest::Client::builder()
+        .use_rustls_tls()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| crate::error::Error::Other(e.to_string()))?;
+    let bytes = client.get(&url).send().await
+        .map_err(|e| crate::error::Error::Other(e.to_string()))?
+        .bytes().await
+        .map_err(|e| crate::error::Error::Other(e.to_string()))?;
+    Ok(format!("data:image/jpeg;base64,{}", general_purpose::STANDARD.encode(&bytes)))
 }
 
 pub async fn handle_oauth_callback(code: &str, state: &str) -> Result<()> {

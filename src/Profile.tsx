@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Account, Status, Paginated } from "./lib/invoke";
 import { userProfile, userStatuses, followUser, unfollowUser } from "./lib/invoke";
 import PostCard from "./PostCard";
+import Avatar from "./Avatar";
 
 export default function Profile({ id, onBack, onNavigateProfile }: { id: string; onBack: () => void; onNavigateProfile: (id: string) => void }) {
   const [profile, setProfile] = useState<Account | null>(null);
@@ -43,13 +44,7 @@ export default function Profile({ id, onBack, onNavigateProfile }: { id: string;
             ← Back
           </button>
           <div className="flex items-center gap-4">
-            {profile.avatar ? (
-              <img src={profile.avatar} alt="" className="w-16 h-16 rounded-full object-cover" />
-            ) : (
-              <div className="w-16 h-16 rounded-full bg-surface-container-high flex items-center justify-center text-xl font-semibold text-on-surface-variant">
-                {profile.display_name.charAt(0).toUpperCase()}
-              </div>
-            )}
+            <Avatar src={profile.avatar} name={profile.display_name} size="w-16 h-16 text-xl" />
             <div className="flex-1 min-w-0">
               <h2 className="text-lg font-semibold truncate">{profile.display_name}</h2>
               <p className="text-on-surface-variant text-sm">@{profile.username}</p>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Conversation } from "./lib/invoke";
 import { conversationsList } from "./lib/invoke";
+import Avatar from "./Avatar";
 
 export default function ConversationList({ onSelect }: { onSelect: (username: string) => void }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -30,13 +31,7 @@ export default function ConversationList({ onSelect }: { onSelect: (username: st
             onClick={() => onSelect(c.username)}
             className="w-full flex items-center gap-3 px-4 py-3 border-b border-outline-variant hover:bg-surface-container-low transition-colors text-left"
           >
-            {c.avatar ? (
-              <img src={c.avatar} alt="" className="w-12 h-12 rounded-full object-cover shrink-0" />
-            ) : (
-              <div className="w-12 h-12 rounded-full bg-surface-container-high flex items-center justify-center text-sm font-semibold text-on-surface-variant shrink-0">
-                {c.display_name.charAt(0).toUpperCase()}
-              </div>
-            )}
+            <Avatar src={c.avatar} name={c.display_name} size="w-12 h-12 text-sm" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-sm truncate">{c.display_name}</span>

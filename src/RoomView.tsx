@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RoomDetail, RoomMessage, RoomChannel } from "./lib/invoke";
 import { roomDetail, roomMessages, roomSendMessage } from "./lib/invoke";
+import Avatar from "./Avatar";
 
 export default function RoomView({ id, onBack }: { id: string; onBack: () => void }) {
   const [room, setRoom] = useState<RoomDetail | null>(null);
@@ -105,13 +106,9 @@ export default function RoomView({ id, onBack }: { id: string; onBack: () => voi
         )}
         {messages.map((m) => (
           <div key={m.id} className="flex gap-2">
-            {m.avatar ? (
-              <img src={m.avatar} alt="" className="w-8 h-8 rounded-full object-cover shrink-0 mt-0.5" />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center text-xs font-semibold text-on-surface-variant shrink-0 mt-0.5">
-                {m.display_name.charAt(0).toUpperCase()}
-              </div>
-            )}
+            <div className="shrink-0 mt-0.5">
+              <Avatar src={m.avatar} name={m.display_name} size="sm" />
+            </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-sm">{m.display_name}</span>

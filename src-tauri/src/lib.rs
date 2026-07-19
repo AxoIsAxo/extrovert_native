@@ -85,6 +85,7 @@ pub fn run() {
             commands::room_send_message,
             commands::e2ee_unlock,
             commands::e2ee_status,
+            commands::fetch_avatar,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
