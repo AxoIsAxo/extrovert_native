@@ -72,10 +72,10 @@ jobs:
             "build-tools;36.0.0" \
             "ndk;27.0.12077973"
 
-      - name: Force cargo to serialize (global config)
+      - name: Limit cargo parallelism (container has cgroup memory limit)
         run: |
           mkdir -p "$HOME/.cargo"
-          printf '[build]\njobs = 1\n' >> "$HOME/.cargo/config.toml"
+          printf '[build]\njobs = 4\n' >> "$HOME/.cargo/config.toml"
           echo "=== $HOME/.cargo/config.toml ==="
           cat "$HOME/.cargo/config.toml"
           echo "" >> src-tauri/gen/android/gradle.properties
@@ -110,7 +110,7 @@ jobs:
           ANDROID_HOME: /opt/android-sdk
           ANDROID_SDK_ROOT: /opt/android-sdk
           NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
-          CARGO_BUILD_JOBS: "1"
+          CARGO_BUILD_JOBS: "4"
           CARGO_PROFILE_DEV_DEBUG: "none"
           CARGO_PROFILE_DEV_INCREMENTAL: "false"
           CARGO_HTTP_MULTIPLEXING: "false"
