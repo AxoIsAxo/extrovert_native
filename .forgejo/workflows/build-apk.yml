@@ -32,12 +32,12 @@ jobs:
           source "$HOME/.cargo/env" 2>/dev/null || true
           rustup target add aarch64-linux-android
 
-      - name: Add swap (CI runners are RAM-tight)
+      - name: Try to add swap (may fail in container)
         run: |
-          sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile || true
+          sudo fallocate -l 4G /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 2>/dev/null || true
+          sudo chmod 600 /swapfile 2>/dev/null || true
+          sudo mkswap /swapfile 2>/dev/null || true
+          sudo swapon /swapfile 2>/dev/null || echo "swap unavailable (container restricted)"
           free -h
 
       - name: Install JDK + Android SDK + NDK
@@ -71,13 +71,14 @@ jobs:
             "build-tools;36.0.0" \
             "ndk;27.0.12077973"
 
-      - name: Disable Gradle daemon + cap heap
+      - name: Slim cargo + gradle memory footprint
         run: |
-          echo "" >> src-tauri/gen/android/gradle.properties
+          mkdir -p src-tauri/.cargo
+          printf '[build]\njobs = 1\n' > src-tauri/.cargo/config.toml
           echo "org.gradle.daemon=false" >> src-tauri/gen/android/gradle.properties
           echo "org.gradle.parallel=false" >> src-tauri/gen/android/gradle.properties
           echo "org.gradle.workers.max=1" >> src-tauri/gen/android/gradle.properties
-          echo "org.gradle.jvmargs=-Xmx768m" >> src-tauri/gen/android/gradle.properties
+          echo "org.gradle.jvmargs=-Xmx512m" >> src-tauri/gen/android/gradle.properties
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -106,6 +107,8 @@ jobs:
           ANDROID_SDK_ROOT: /opt/android-sdk
           NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
           CARGO_BUILD_JOBS: "1"
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_DEV_INCREMENTAL: "false"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
