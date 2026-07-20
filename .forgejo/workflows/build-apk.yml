@@ -67,7 +67,7 @@ jobs:
       - name: Configure cargo + gradle for low memory
         run: |
           mkdir -p "$HOME/.cargo"
-          printf '[build]\njobs = 4\n' >> "$HOME/.cargo/config.toml"
+          printf '[build]\njobs = 8\n' >> "$HOME/.cargo/config.toml"
           echo "" >> src-tauri/gen/android/gradle.properties
           echo "org.gradle.daemon=false" >> src-tauri/gen/android/gradle.properties
           echo "org.gradle.parallel=false" >> src-tauri/gen/android/gradle.properties
@@ -92,6 +92,15 @@ jobs:
           key: cargo-target-android-aarch64-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: cargo-target-android-aarch64-
 
+      - name: Cache Gradle distribution + deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/wrapper
+            ~/.gradle/caches
+          key: gradle-${{ hashFiles('src-tauri/gen/android/**/*.gradle.kts', 'src-tauri/gen/android/gradle.properties') }}
+          restore-keys: gradle-
+
       - name: Install JS dependencies
         run: npm ci
 
@@ -102,7 +111,7 @@ jobs:
           ANDROID_HOME: /opt/android-sdk
           ANDROID_SDK_ROOT: /opt/android-sdk
           NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
-          CARGO_BUILD_JOBS: "4"
+          CARGO_BUILD_JOBS: "8"
           CARGO_PROFILE_DEV_DEBUG: "none"
           CARGO_PROFILE_DEV_INCREMENTAL: "false"
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx384m"
