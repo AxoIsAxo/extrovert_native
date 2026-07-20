@@ -177,6 +177,16 @@ updating the CSP `connect-src`/`img-src` there too.
 - Debug-signed APK (`apksigner` with `~/.android/debug.keystore`, store/key pass
   `android`, alias `androiddebugkey`) installs on a real device with
   `adb install -r <apk>`. Release builds are unsigned by default.
+- **CI**: `.forgejo/workflows/build-apk.yml` builds a debug APK on every push to
+  `main`/`master` (and via `workflow_dispatch`). Runner is `ubuntu-22.04`; the
+  workflow installs JDK 17, Android SDK 36 + build-tools 36.0.0 + NDK
+  `27.0.12077973` itself (under `/opt/android-sdk`), adds the four Android Rust
+  targets, then runs `npx tauri android build --apk --debug`. APK is uploaded as
+  an artifact named `extrovert-android-debug-apk`. If you bump `compileSdk` in
+  `app/build.gradle.kts` or the NDK version Tauri pins, update the pinned values
+  in the workflow too. To produce a signed release APK, add a keystore via
+  Codeberg **Repository Secrets** and switch the build step to `--release` with
+  the `KEYSTORE_*` env vars wired into `tauri.build.gradle.kts` / signing config.
 
 ## Identifier / scheme notes
 
