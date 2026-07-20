@@ -32,6 +32,14 @@ jobs:
           source "$HOME/.cargo/env" 2>/dev/null || true
           rustup target add aarch64-linux-android
 
+      - name: Add swap (CI runners are RAM-tight)
+        run: |
+          sudo fallocate -l 3G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=3072
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile || true
+          free -h
+
       - name: Install Android SDK + NDK + JDK
         run: |
           set -euo pipefail
@@ -83,13 +91,33 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
-      - name: Build Android APK (debug, aarch64 only)
-        run: npx tauri android build --apk --debug --target aarch64
+      - name: Build Rust library (aarch64 Android)
+        run: cargo build --target aarch64-linux-android
+        working-directory: src-tauri
         env:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
           ANDROID_HOME: /opt/android-sdk
           NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
-          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx1024m -Dorg.gradle.workers.max=2"
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: /opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS: "-Clink-arg=-landroid -Clink-arg=-llog -Clink-arg=-lOpenSLES"
+
+      - name: Symlink native lib into jniLibs
+        run: |
+          set -euo pipefail
+          mkdir -p src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a
+          cp -f src-tauri/target/aarch64-linux-android/debug/libextrovert_native_lib.so \
+                src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/
+
+      - name: Build APK with Gradle (no daemon, tight heap)
+        run: |
+          ./gradlew --project-dir . assembleDebug --no-daemon --no-parallel --max-workers=1
+        working-directory: src-tauri/gen/android
+        env:
+          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+          ANDROID_HOME: /opt/android-sdk
+          ANDROID_SDK_ROOT: /opt/android-sdk
+          NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx768m -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
