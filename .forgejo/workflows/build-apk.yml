@@ -98,6 +98,20 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Install Rust toolchain (Tauri needs cargo metadata)
+        run: |
+          if command -v cargo >/dev/null 2>&1; then
+            echo "rust already present: $(cargo --version)"
+          else
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Add Android Rust target
+        run: |
+          source "$HOME/.cargo/env" 2>/dev/null || true
+          rustup target add aarch64-linux-android
+
       - name: Install JDK + Android SDK + NDK
         run: |
           set -euo pipefail
