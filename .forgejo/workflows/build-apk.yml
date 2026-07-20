@@ -34,13 +34,13 @@ jobs:
 
       - name: Add swap (CI runners are RAM-tight)
         run: |
-          sudo fallocate -l 3G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=3072
+          sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile || true
           free -h
 
-      - name: Install Android SDK + NDK + JDK
+      - name: Install JDK + Android SDK + NDK
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -58,8 +58,7 @@ jobs:
 
           sudo mkdir -p "$ANDROID_HOME/cmdline-tools"
           cd "$ANDROID_HOME/cmdline-tools"
-          CMDLINE_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
-          curl -fsSL "$CMDLINE_URL" -o cmdline.zip
+          curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -o cmdline.zip
           unzip -q cmdline.zip
           mv cmdline-tools latest
           rm cmdline.zip
@@ -72,61 +71,45 @@ jobs:
             "build-tools;36.0.0" \
             "ndk;27.0.12077973"
 
+      - name: Disable Gradle daemon + cap heap
+        run: |
+          echo "" >> src-tauri/gen/android/gradle.properties
+          echo "org.gradle.daemon=false" >> src-tauri/gen/android/gradle.properties
+          echo "org.gradle.parallel=false" >> src-tauri/gen/android/gradle.properties
+          echo "org.gradle.workers.max=1" >> src-tauri/gen/android/gradle.properties
+          echo "org.gradle.jvmargs=-Xmx768m" >> src-tauri/gen/android/gradle.properties
+
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: cargo-registry-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock', 'src-tauri/Cargo.toml') }}
-          restore-keys: cargo-registry-${{ runner.os }}-
+          key: cargo-registry-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: cargo-registry-
 
       - name: Cache cargo target
         uses: actions/cache@v4
         with:
           path: src-tauri/target
-          key: cargo-target-${{ runner.os }}-android-${{ hashFiles('src-tauri/Cargo.lock', 'src-tauri/Cargo.toml') }}
-          restore-keys: cargo-target-${{ runner.os }}-android-
+          key: cargo-target-android-aarch64-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: cargo-target-android-aarch64-
 
       - name: Install JS dependencies
         run: npm ci
 
-      - name: Build Rust library (aarch64 Android)
-        run: cargo build --target aarch64-linux-android
-        working-directory: src-tauri
-        env:
-          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
-          ANDROID_HOME: /opt/android-sdk
-          NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
-          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: /opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
-          CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS: "-Clink-arg=-landroid -Clink-arg=-llog -Clink-arg=-lOpenSLES"
-          CC_aarch64_linux_android: /opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
-          CXX_aarch64_linux_android: /opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++
-          AR_aarch64_linux_android: /opt/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-
-      - name: Symlink native lib into jniLibs
-        run: |
-          set -euo pipefail
-          mkdir -p src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a
-          cp -f src-tauri/target/aarch64-linux-android/debug/libextrovert_native_lib.so \
-                src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/
-
-      - name: Build APK with Gradle (no daemon, tight heap)
-        run: |
-          ./gradlew --project-dir . assembleDebug --no-daemon --no-parallel --max-workers=1
-        working-directory: src-tauri/gen/android
+      - name: Build Android APK (debug, aarch64)
+        run: npx tauri android build --apk --debug --target aarch64
         env:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
           ANDROID_HOME: /opt/android-sdk
           ANDROID_SDK_ROOT: /opt/android-sdk
           NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
-          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx768m -Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
+          CARGO_BUILD_JOBS: "1"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: extrovert-android-debug-apk
-          path: |
-            src-tauri/gen/android/app/build/outputs/apk/debug/*.apk
-            src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
