@@ -14,6 +14,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls", "blocking"], default-features = false }
@@ -39,3 +40,4 @@ aes-gcm = "0.10"
 pbkdf2 = { version = "0.12", features = ["hmac"] }
 hmac = "0.12"
 urlencoding = "2"
+tauri-plugin-opener = "2"

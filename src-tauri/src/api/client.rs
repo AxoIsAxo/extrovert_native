@@ -237,16 +237,19 @@ pub async fn exchange_code(
     Ok(resp.json().await?)
 }
 
-/// Server wraps API responses in { data: ... }. Extract it.
-/// If the response also has a top-level `pagination` field, pass the whole
-/// thing through so paginated types like `Paginated<T>` can deserialize.
+/// Some endpoints wrap responses in { data: … }, others return the object directly.
+/// Paginated responses have a top-level `pagination` field — pass them through
+/// so types like `Paginated<T>` can deserialize.
 async fn extract_data<T: DeserializeOwned>(resp: Response) -> Result<T> {
     let v: Value = resp.json().await.map_err(Error::Network)?;
+    // Paginated responses have both `data` and `pagination` — pass through whole value.
     if v.get("pagination").is_some() {
         return serde_json::from_value(v).map_err(Error::Json);
     }
-    let data = v.get("data").ok_or_else(|| {
-        Error::Other("response missing 'data' field".into())
-    })?;
-    serde_json::from_value(data.clone()).map_err(Error::Json)
+    // Some endpoints wrap data in { "data": … }, others return the object directly.
+    if let Some(data) = v.get("data") {
+        serde_json::from_value(data.clone()).map_err(Error::Json)
+    } else {
+        serde_json::from_value(v).map_err(Error::Json)
+    }
 }

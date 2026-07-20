@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 import { authLoginStart, authLogout, authCurrentUser, type Account } from "./lib/invoke";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-shell";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import Timeline from "./Timeline";
 import Compose from "./Compose";
 import Profile from "./Profile";
-import ConversationList from "./ConversationList";
+import ChatList from "./ChatList";
+import type { ChatEntry } from "./ChatList";
 import ChatView from "./ChatView";
-import RoomList from "./RoomList";
 import RoomView from "./RoomView";
 
 type Screen = "loading" | "login" | "app";
 
-type Tab = "home" | "chats" | "rooms" | "profile";
+type Tab = "home" | "chats" | "profile";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("loading");
@@ -26,26 +26,26 @@ export default function App() {
   const [roomId, setRoomId] = useState<string | null>(null);
 
   useEffect(() => {
-    authCurrentUser()
-      .then((u) => {
-        setUser(u);
-        setScreen(u ? "app" : "login");
-      })
-      .catch(() => setScreen("login"));
+    let unlisteners: (() => void)[] = [];
 
-    const unlisteners: (() => void)[] = [];
+    async function checkUser() {
+      try {
+        const u = await authCurrentUser();
+        if (u) {
+          setUser(u);
+          setScreen("app");
+        } else {
+          setScreen("login");
+        }
+      } catch {
+        setScreen("login");
+      }
+    }
+
+    checkUser();
 
     listen("oauth-success", () => {
-      authCurrentUser()
-        .then((u) => {
-          if (u) {
-            setUser(u);
-            setScreen("app");
-          } else {
-            setError("Token stored but auth returned null");
-          }
-        })
-        .catch((e) => setError(String(e)));
+      checkUser();
     }).then((fn) => unlisteners.push(fn));
 
     listen<string>("oauth-error", (e) => {
@@ -61,11 +61,29 @@ export default function App() {
     };
   }, []);
 
+  // Poll for login state while on the login screen (handles deep-link
+  // opening a second OS process that completes the OAuth flow externally).
+  useEffect(() => {
+    if (screen !== "login") return;
+    const interval = setInterval(async () => {
+      try {
+        const u = await authCurrentUser();
+        if (u) {
+          setUser(u);
+          setScreen("app");
+        }
+      } catch (e) {
+        setError(`auth check failed: ${e}`);
+      }
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [screen]);
+
   async function handleLogin() {
     setError(null);
     try {
       const url = await authLoginStart();
-      await open(url);
+      await openUrl(url);
     } catch (e) {
       setError(String(e));
     }
@@ -86,19 +104,20 @@ export default function App() {
     setTab("profile");
   }
 
-  function handleSelectChat(username: string) {
-    setChatUsername(username);
+  function handleSelectChat(entry: ChatEntry) {
+    if (entry.kind === "dm") {
+      setChatUsername(entry.c.username);
+      setRoomId(null);
+    } else {
+      setRoomId(entry.r.id);
+      setChatUsername(null);
+    }
     setTab("chats");
-  }
-
-  function handleSelectRoom(id: string) {
-    setRoomId(id);
-    setTab("rooms");
   }
 
   if (screen === "loading") {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-screen safe-top">
         <div className="text-on-surface-variant">Loading…</div>
       </div>
     );
@@ -106,7 +125,7 @@ export default function App() {
 
   if (screen === "login") {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-6 px-6">
+      <div className="flex flex-col items-center justify-center min-h-screen gap-6 px-6 safe-top safe-bottom">
         <div className="flex items-center gap-3">
           <div
             className="w-12 h-12 rounded-full flex items-center justify-center font-extrabold text-lg"
@@ -150,10 +169,8 @@ export default function App() {
         return <Timeline onNavigateProfile={handleNavigateProfile} onCompose={() => setComposing(true)} />;
       case "chats":
         if (chatUsername) return <ChatView username={chatUsername} onBack={() => setChatUsername(null)} />;
-        return <ConversationList onSelect={handleSelectChat} />;
-      case "rooms":
         if (roomId) return <RoomView id={roomId} onBack={() => setRoomId(null)} />;
-        return <RoomList onSelect={handleSelectRoom} />;
+        return <ChatList onSelect={handleSelectChat} />;
       case "profile":
         return profileId ? (
           <Profile id={profileId} onBack={() => setTab("home")} onNavigateProfile={handleNavigateProfile} />
@@ -162,8 +179,8 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="flex items-center justify-between px-4 py-2.5 border-b border-outline-variant">
+    <div className="flex flex-col" style={{ height: '100dvh' }}>
+      <header className="flex items-center justify-between px-4 py-2.5 border-b border-outline-variant safe-top">
         <div className="flex items-center gap-2">
           <div
             className="w-8 h-8 rounded-full flex items-center justify-center font-extrabold text-xs"
@@ -190,11 +207,10 @@ export default function App() {
         {renderContent()}
       </div>
 
-      <nav className="flex border-t border-outline-variant bg-surface-container-low">
+      <nav className="flex border-t border-outline-variant bg-surface-container-low" style={{ paddingBottom: '32px' }}>
         {([
           ["home", "Home"],
           ["chats", "Chats"],
-          ["rooms", "Rooms"],
           ["profile", "Profile"],
         ] as const).map(([t, label]) => (
           <button

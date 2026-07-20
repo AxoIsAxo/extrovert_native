@@ -32,8 +32,11 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["im.extrovert.mobile"]
-      }
+        "schemes": ["im.extrovert.native"]
+      },
+      "mobile": [
+        { "scheme": ["im.extrovert.native"] }
+      ]
     }
   }
 }

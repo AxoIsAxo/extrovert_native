@@ -1,12 +1,14 @@
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use base64::Engine;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::auth::generate_pkce;
 use crate::config;
 use crate::error::{Error, Result};
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PendingFlow {
     pub verifier: String,
     pub state: String,
@@ -15,6 +17,41 @@ pub struct PendingFlow {
 
 pub static PENDING: Mutex<Option<PendingFlow>> = Mutex::new(None);
 
+fn pending_file_path() -> PathBuf {
+    crate::auth::store::data_dir().join("pending.json")
+}
+
+fn save_pending_to_disk(pending: &PendingFlow) {
+    if let Ok(data) = serde_json::to_string(pending) {
+        let _ = std::fs::write(pending_file_path(), data);
+    }
+}
+
+fn load_pending_from_disk() -> Option<PendingFlow> {
+    let path = pending_file_path();
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+}
+
+fn clear_pending_on_disk() {
+    let _ = std::fs::remove_file(pending_file_path());
+}
+
+pub fn take_pending() -> Option<PendingFlow> {
+    let from_mem = PENDING.lock().unwrap().take();
+    if from_mem.is_some() {
+        clear_pending_on_disk();
+        from_mem
+    } else {
+        let from_disk = load_pending_from_disk();
+        if from_disk.is_some() {
+            clear_pending_on_disk();
+        }
+        from_disk
+    }
+}
+
 pub fn build_authorize_url() -> String {
     let pkce = generate_pkce();
     let state = crate::auth::random_state();
@@ -22,11 +59,13 @@ pub fn build_authorize_url() -> String {
 
     let url = config::authorize_url(config::CLIENT_ID, &pkce.challenge, &state, &nonce);
 
-    *PENDING.lock().unwrap() = Some(PendingFlow {
+    let pending = PendingFlow {
         verifier: pkce.verifier,
         state,
         nonce,
-    });
+    };
+    save_pending_to_disk(&pending);
+    *PENDING.lock().unwrap() = Some(pending);
 
     url
 }
@@ -42,15 +81,41 @@ struct JwkKey {
     e: String,
 }
 
-pub fn fetch_decoding_key() -> Result<jsonwebtoken::DecodingKey> {
-    let resp = reqwest::blocking::get(config::jwks_url())?;
-    let jwks: JwksResponse = resp.json()?;
-    let key = jwks.keys.into_iter().next().ok_or_else(|| {
-        Error::Oauth("JWKS has no keys".into())
-    })?;
+pub async fn verify_id_token(
+    id_token: &str,
+    expected_nonce: &str,
+    client_id: &str,
+) -> Result<()> {
+    let decoding_key = fetch_decoding_key().await?;
 
-    let pem = jwk_to_rsa_public_key_pem(&key.n, &key.e)
-        .map_err(|e| Error::Other(format!("build pem: {e}")))?;
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
+    validation.set_issuer(&[config::issuer()]);
+    validation.set_audience(&[client_id]);
+
+    let token_data =
+        jsonwebtoken::decode::<Claims>(id_token, &decoding_key, &validation)?;
+
+    if let Some(n) = &token_data.claims.nonce {
+        if n != expected_nonce {
+            return Err(Error::Oauth("nonce mismatch".into()));
+        }
+    }
+
+    Ok(())
+}
+
+async fn fetch_decoding_key() -> Result<jsonwebtoken::DecodingKey> {
+    let resp = reqwest::get(config::jwks_url()).await?;
+    let jwks: JwksResponse = resp.json().await?;
+    let key = jwks
+        .keys
+        .into_iter()
+        .next()
+        .ok_or_else(|| Error::Oauth("JWKS has no keys".into()))?;
+
+    let pem =
+        jwk_to_rsa_public_key_pem(&key.n, &key.e)
+            .map_err(|e| Error::Other(format!("build pem: {e}")))?;
 
     jsonwebtoken::DecodingKey::from_rsa_pem(pem.as_bytes())
         .map_err(|e| Error::Other(format!("from_rsa_pem: {e}")))
@@ -59,10 +124,14 @@ pub fn fetch_decoding_key() -> Result<jsonwebtoken::DecodingKey> {
 fn jwk_to_rsa_public_key_pem(n_b64: &str, e_b64: &str) -> Result<String> {
     let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
     let n = engine.decode(n_b64).unwrap_or_else(|_| {
-        base64::engine::general_purpose::STANDARD.decode(n_b64).unwrap()
+        base64::engine::general_purpose::STANDARD
+            .decode(n_b64)
+            .unwrap()
     });
     let e = engine.decode(e_b64).unwrap_or_else(|_| {
-        base64::engine::general_purpose::STANDARD.decode(e_b64).unwrap()
+        base64::engine::general_purpose::STANDARD
+            .decode(e_b64)
+            .unwrap()
     });
 
     let der = build_rsa_public_key_der(&n, &e);
@@ -88,7 +157,6 @@ fn build_rsa_public_key_der(n: &[u8], e: &[u8]) -> Vec<u8> {
 }
 
 fn encode_integer(bytes: &[u8]) -> Vec<u8> {
-    // Strip leading zeros in DER (except if high bit is set, need leading zero)
     let value = if bytes.first().copied().unwrap_or(0) >= 0x80 {
         let mut v = vec![0x00];
         v.extend_from_slice(bytes);
@@ -127,22 +195,4 @@ struct Claims {
     nonce: Option<String>,
     #[serde(default)]
     sub: Option<String>,
-}
-
-pub fn verify_id_token(id_token: &str, expected_nonce: &str, client_id: &str) -> Result<()> {
-    let decoding_key = fetch_decoding_key()?;
-
-    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::RS256);
-    validation.set_issuer(&[config::issuer()]);
-    validation.set_audience(&[client_id]);
-
-    let token_data = jsonwebtoken::decode::<Claims>(id_token, &decoding_key, &validation)?;
-
-    if let Some(n) = &token_data.claims.nonce {
-        if n != expected_nonce {
-            return Err(Error::Oauth("nonce mismatch".into()));
-        }
-    }
-
-    Ok(())
 }

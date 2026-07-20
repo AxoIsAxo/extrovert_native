@@ -2,7 +2,7 @@ use base64::engine::general_purpose;
 use base64::Engine;
 use tauri::State;
 
-use crate::api::{build_authorize_url, verify_id_token, PENDING, ApiClient};
+use crate::api::{build_authorize_url, take_pending, verify_id_token, ApiClient};
 use crate::auth;
 use crate::config;
 use crate::crypto::e2ee;
@@ -39,6 +39,7 @@ fn fix_status(s: &mut Status) {
 
 #[tauri::command]
 pub async fn auth_login_start() -> Result<String> {
+    crate::reset_callback_processed();
     Ok(build_authorize_url())
 }
 
@@ -404,30 +405,59 @@ pub async fn room_send_message(
         .await
 }
 
-#[tauri::command]
-pub async fn fetch_avatar(
-    path: String,
-) -> Result<String> {
-    let url = if path.starts_with("http://") || path.starts_with("https://") {
-        path
-    } else {
-        format!("{}{}", config::issuer(), path)
-    };
+/// Fetch image bytes from the server with the user's bearer token attached
+/// (post media under `/api-uploads/` is auth-gated; the webview's `<img src>`
+/// can't send an Authorization header, so we fetch via Rust and hand the
+/// webview a `data:` URL instead, mirroring `fetch_avatar`).
+async fn fetch_image_data_url(path: &str) -> Result<String> {
+    let url = urlfix::absolutize(path, config::issuer())
+        .ok_or_else(|| crate::error::Error::Other("empty image path".into()))?;
+
     let client = reqwest::Client::builder()
         .use_rustls_tls()
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent("ExtrovertNative/0.1")
         .build()
         .map_err(|e| crate::error::Error::Other(e.to_string()))?;
-    let bytes = client.get(&url).send().await
-        .map_err(|e| crate::error::Error::Other(e.to_string()))?
-        .bytes().await
-        .map_err(|e| crate::error::Error::Other(e.to_string()))?;
-    Ok(format!("data:image/jpeg;base64,{}", general_purpose::STANDARD.encode(&bytes)))
+
+    let mut req = client.get(&url);
+    if let Ok(Some(token)) = auth::get_access_token().map_err(crate::error::Error::Other) {
+        req = req.bearer_auth(token);
+    }
+
+    let resp = req.send().await.map_err(|e| crate::error::Error::Other(e.to_string()))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let detail = resp.text().await.unwrap_or_default();
+        return Err(crate::error::Error::Api {
+            status: status.as_u16(),
+            detail: format!("fetch image {url}: {detail}"),
+        });
+    }
+
+    let mime = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(';').next().unwrap_or("image/jpeg").trim().to_string())
+        .unwrap_or_else(|| "image/jpeg".to_string());
+
+    let bytes = resp.bytes().await.map_err(|e| crate::error::Error::Other(e.to_string()))?;
+    Ok(format!("data:{};base64,{}", mime, general_purpose::STANDARD.encode(&bytes)))
+}
+
+#[tauri::command]
+pub async fn fetch_avatar(path: String) -> Result<String> {
+    fetch_image_data_url(&path).await
+}
+
+#[tauri::command]
+pub async fn fetch_media(path: String) -> Result<String> {
+    fetch_image_data_url(&path).await
 }
 
 pub async fn handle_oauth_callback(code: &str, state: &str) -> Result<()> {
-    let pending = PENDING.lock().unwrap().take();
-    let pending = pending.ok_or_else(|| {
+    let pending = take_pending().ok_or_else(|| {
         crate::error::Error::Oauth("no pending OAuth flow".into())
     })?;
 
@@ -438,7 +468,7 @@ pub async fn handle_oauth_callback(code: &str, state: &str) -> Result<()> {
     let token_resp = crate::api::exchange_code(code, &pending.verifier).await?;
 
     if let Some(ref id_token) = token_resp.id_token {
-        verify_id_token(id_token, &pending.nonce, config::CLIENT_ID)?;
+        verify_id_token(id_token, &pending.nonce, config::CLIENT_ID).await?;
     }
 
     auth::store_access_token(&token_resp.access_token)

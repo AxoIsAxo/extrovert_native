@@ -75,7 +75,7 @@ export default function RoomView({ id, onBack }: { id: string; onBack: () => voi
   return (
     <div className="flex flex-col min-h-0 flex-1">
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-outline-variant">
-        <button onClick={onBack} className="text-on-surface-variant hover:text-on-surface transition-colors text-sm">← Rooms</button>
+        <button onClick={onBack} className="text-on-surface-variant hover:text-on-surface transition-colors text-sm">← Chats</button>
         <span className="font-semibold text-sm truncate">{room.name}</span>
       </div>
 

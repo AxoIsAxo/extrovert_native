@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Status } from "./lib/invoke";
-import { likePost, unlikePost, reblogPost } from "./lib/invoke";
+import { likePost, unlikePost, reblogPost, fetchMedia } from "./lib/invoke";
 import Avatar from "./Avatar";
 
 function timeAgo(ts: number): string {
@@ -24,6 +24,16 @@ export default function PostCard({
   onNavigateProfile: (id: string) => void;
 }) {
   const [s, setS] = useState(status);
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!s.media_path) { setMediaUrl(null); return; }
+    let cancelled = false;
+    fetchMedia(s.media_path!)
+      .then((url) => { if (!cancelled) setMediaUrl(url); })
+      .catch(() => { if (!cancelled) setMediaUrl(null); });
+    return () => { cancelled = true; };
+  }, [s.media_path]);
 
   async function toggleLike() {
     try {
@@ -66,8 +76,8 @@ export default function PostCard({
             <div className="text-xs text-primary font-medium mb-1">Reposted</div>
           )}
           <p className="text-sm text-on-surface whitespace-pre-wrap break-words">{s.body}</p>
-          {s.media_path && (
-            <img src={s.media_path} alt="" className="mt-2 rounded-lg max-h-80 w-full object-cover" />
+          {mediaUrl && (
+            <img src={mediaUrl} alt="" className="mt-2 rounded-lg max-h-80 w-full object-cover" />
           )}
           <div className="flex gap-6 mt-2">
             <button onClick={toggleLike} className="flex items-center gap-1 text-sm text-on-surface-variant hover:text-red-500 transition-colors">

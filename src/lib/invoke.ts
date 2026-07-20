@@ -207,3 +207,7 @@ export async function e2eeStatus(): Promise<boolean> {
 export async function fetchAvatar(path: string): Promise<string> {
   return invoke<string>("fetch_avatar", { path });
 }
+
+export async function fetchMedia(path: string): Promise<string> {
+  return invoke<string>("fetch_media", { path });
+}

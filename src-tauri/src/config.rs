@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 const ISSUER: &str = "https://extrovert.redforged.eu";
 const API_BASE: &str = "https://extrovert.redforged.eu";
-const REDIRECT_URI: &str = "im.extrovert.mobile://oauth/callback";
+const REDIRECT_URI: &str = "im.extrovert.native://oauth/callback";
 const SCOPES: &str = "openid profile read write follow media.write notifications read:direct write:direct";
 
 pub const CLIENT_ID: &str = "86add8101780d8afeb3b258e22743b2b2ff74f46d903c3ff";

@@ -9,7 +9,7 @@ pub fn init(app_data_dir: PathBuf) {
     let _ = DATA_DIR.set(app_data_dir);
 }
 
-fn data_dir() -> &'static PathBuf {
+pub fn data_dir() -> &'static PathBuf {
     DATA_DIR.get().expect("auth::store::init not called")
 }
 

@@ -2,3 +2,10 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Mobile safe-area insets: status bar (top) and gesture nav bar (bottom). */
+/* env() may return 0 on Android WebView; the max() fallback ensures at least
+   24px of clearance for the gesture navigation bar. */
+.safe-top { padding-top: env(safe-area-inset-top, 0px); }
+.safe-bottom { padding-bottom: max(env(safe-area-inset-bottom, 0px), 48px); }
+.safe-x { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
