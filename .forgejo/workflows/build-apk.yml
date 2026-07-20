@@ -26,11 +26,18 @@ jobs:
           source "$HOME/.cargo/env" 2>/dev/null || true
           rustup target add aarch64-linux-android
 
-      - name: Install Android NDK (for cross-compiler)
+      - name: Install JDK + Android NDK (for cross-compiler)
         run: |
           set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk unzip
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           export ANDROID_HOME=/opt/android-sdk
           export NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
+          echo "JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$NDK_HOME" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME/bin" >> "$GITHUB_PATH"
           sudo mkdir -p "$ANDROID_HOME/cmdline-tools"
           cd "$ANDROID_HOME/cmdline-tools"
           curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -o cmdline.zip
