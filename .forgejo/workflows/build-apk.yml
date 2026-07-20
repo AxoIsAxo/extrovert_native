@@ -154,13 +154,15 @@ jobs:
 
       - name: Configure gradle for low memory + in-process Kotlin
         run: |
-          echo "" >> src-tauri/gen/android/gradle.properties
-          echo "org.gradle.daemon=false" >> src-tauri/gen/android/gradle.properties
-          echo "org.gradle.parallel=false" >> src-tauri/gen/android/gradle.properties
-          echo "org.gradle.workers.max=1" >> src-tauri/gen/android/gradle.properties
-          echo "org.gradle.jvmargs=-Xmx384m" >> src-tauri/gen/android/gradle.properties
-          echo "kotlin.daemon.jvmargs=-Xmx384m" >> src-tauri/gen/android/gradle.properties
-          echo "kotlin.compiler.execution.strategy=in-process" >> src-tauri/gen/android/gradle.properties
+          cat >> src-tauri/gen/android/gradle.properties <<'EOF'
+
+          org.gradle.daemon=false
+          org.gradle.parallel=false
+          org.gradle.workers.max=2
+          org.gradle.jvmargs=-Xmx2g
+          kotlin.daemon.jvmargs=-Xmx2g
+          kotlin.compiler.execution.strategy=in-process
+          EOF
 
       - name: Install JS dependencies
         run: npm ci
@@ -174,8 +176,8 @@ jobs:
           NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
           CARGO_PROFILE_DEV_DEBUG: "none"
           CARGO_PROFILE_DEV_INCREMENTAL: "false"
-          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx384m"
-          KOTLIN_DAEMON_JVM_OPTIONS: "-Xmx384m"
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g"
+          KOTLIN_DAEMON_JVM_OPTIONS: "-Xmx2g"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
