@@ -189,13 +189,13 @@ updating the CSP `connect-src`/`img-src` there too.
   the `KEYSTORE_*` env vars wired into `tauri.build.gradle.kts` / signing config.
 - **Kotlin heap**: `:app:compileUniversalDebugKotlin` OOMs (`Java heap space`)
   if `org.gradle.jvmargs` is below ~1g — `kotlin.compiler.execution.strategy=in-process`
-  makes Kotlin share the Gradle JVM, so the heap has to cover both. We pin `-Xmx2g`
+  makes Kotlin share the Gradle JVM, so the heap has to cover both. We pin `-Xmx1g`
   in both `gradle.properties` (via the heredoc step) and the `GRADLE_OPTS` /
   `KOTLIN_DAEMON_JVM_OPTIONS` env on the build step — keep them in sync.
-  `org.gradle.workers.max=2` parallelizes the Kotlin compile so the job fits the
-  runner's ~10 min limit while the gradle-distribution cache is still cold (it
-  only saves on success, so the first run after any cache-key change pays a
-  ~3 min gradle download).
+  Going higher (e.g. `-Xmx2g`) causes the OS OOM killer to terminate the Gradle
+  JVM on the Codeberg medium runner. `org.gradle.workers.max=1` keeps memory
+  low; the gradle-distribution cache only saves on success, so the first run
+  after any cache-key change pays a ~3 min gradle download.
 
 ## Identifier / scheme notes
 

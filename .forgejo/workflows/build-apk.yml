@@ -158,9 +158,9 @@ jobs:
 
           org.gradle.daemon=false
           org.gradle.parallel=false
-          org.gradle.workers.max=2
-          org.gradle.jvmargs=-Xmx2g
-          kotlin.daemon.jvmargs=-Xmx2g
+          org.gradle.workers.max=1
+          org.gradle.jvmargs=-Xmx1g
+          kotlin.daemon.jvmargs=-Xmx1g
           kotlin.compiler.execution.strategy=in-process
           EOF
 
@@ -176,8 +176,8 @@ jobs:
           NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
           CARGO_PROFILE_DEV_DEBUG: "none"
           CARGO_PROFILE_DEV_INCREMENTAL: "false"
-          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2g"
-          KOTLIN_DAEMON_JVM_OPTIONS: "-Xmx2g"
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx1g"
+          KOTLIN_DAEMON_JVM_OPTIONS: "-Xmx1g"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
