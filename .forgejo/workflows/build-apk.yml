@@ -32,13 +32,14 @@ jobs:
           source "$HOME/.cargo/env" 2>/dev/null || true
           rustup target add aarch64-linux-android
 
-      - name: Try to add swap (may fail in container)
+      - name: Show container memory limits (diagnostic)
         run: |
-          sudo fallocate -l 4G /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 2>/dev/null || true
-          sudo chmod 600 /swapfile 2>/dev/null || true
-          sudo mkswap /swapfile 2>/dev/null || true
-          sudo swapon /swapfile 2>/dev/null || echo "swap unavailable (container restricted)"
+          echo "=== free -h ==="
           free -h
+          echo "=== cgroup v2 ==="
+          cat /sys/fs/cgroup/memory.max 2>/dev/null || echo "(not cgroup v2)"
+          echo "=== cgroup v1 ==="
+          cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || echo "(not cgroup v1)"
 
       - name: Install JDK + Android SDK + NDK
         run: |
@@ -71,10 +72,13 @@ jobs:
             "build-tools;36.0.0" \
             "ndk;27.0.12077973"
 
-      - name: Slim cargo + gradle memory footprint
+      - name: Force cargo to serialize (global config)
         run: |
-          mkdir -p src-tauri/.cargo
-          printf '[build]\njobs = 1\n' > src-tauri/.cargo/config.toml
+          mkdir -p "$HOME/.cargo"
+          printf '[build]\njobs = 1\n' >> "$HOME/.cargo/config.toml"
+          echo "=== $HOME/.cargo/config.toml ==="
+          cat "$HOME/.cargo/config.toml"
+          echo "" >> src-tauri/gen/android/gradle.properties
           echo "org.gradle.daemon=false" >> src-tauri/gen/android/gradle.properties
           echo "org.gradle.parallel=false" >> src-tauri/gen/android/gradle.properties
           echo "org.gradle.workers.max=1" >> src-tauri/gen/android/gradle.properties
@@ -107,8 +111,9 @@ jobs:
           ANDROID_SDK_ROOT: /opt/android-sdk
           NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
           CARGO_BUILD_JOBS: "1"
-          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_DEV_DEBUG: "none"
           CARGO_PROFILE_DEV_INCREMENTAL: "false"
+          CARGO_HTTP_MULTIPLEXING: "false"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
