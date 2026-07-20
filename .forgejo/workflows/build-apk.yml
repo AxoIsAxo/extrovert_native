@@ -64,7 +64,7 @@ jobs:
             "build-tools;35.0.0" \
             "ndk;27.0.12077973"
 
-      - name: Limit cargo parallelism + wrap gradlew with --no-daemon
+      - name: Configure cargo + gradle for low memory
         run: |
           mkdir -p "$HOME/.cargo"
           printf '[build]\njobs = 4\n' >> "$HOME/.cargo/config.toml"
@@ -72,11 +72,9 @@ jobs:
           echo "org.gradle.daemon=false" >> src-tauri/gen/android/gradle.properties
           echo "org.gradle.parallel=false" >> src-tauri/gen/android/gradle.properties
           echo "org.gradle.workers.max=1" >> src-tauri/gen/android/gradle.properties
-          echo "org.gradle.jvmargs=-Xmx512m" >> src-tauri/gen/android/gradle.properties
-          GRADLEW=src-tauri/gen/android/gradlew
-          mv "$GRADLEW" "${GRADLEW}.real"
-          printf '#!/bin/sh\nexec "$(dirname "$0")/gradlew.real" --no-daemon "$@"\n' > "$GRADLEW"
-          chmod +x "$GRADLEW"
+          echo "org.gradle.jvmargs=-Xmx384m" >> src-tauri/gen/android/gradle.properties
+          echo "kotlin.daemon.jvmargs=-Xmx384m" >> src-tauri/gen/android/gradle.properties
+          echo "kotlin.compiler.execution.strategy=in-process" >> src-tauri/gen/android/gradle.properties
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -107,7 +105,8 @@ jobs:
           CARGO_BUILD_JOBS: "4"
           CARGO_PROFILE_DEV_DEBUG: "none"
           CARGO_PROFILE_DEV_INCREMENTAL: "false"
-          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx512m"
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx384m"
+          KOTLIN_DAEMON_JVM_OPTIONS: "-Xmx384m"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
