@@ -211,3 +211,7 @@ export async function fetchAvatar(path: string): Promise<string> {
 export async function fetchMedia(path: string): Promise<string> {
   return invoke<string>("fetch_media", { path });
 }
+
+export async function getCallToken(): Promise<string> {
+  return invoke<string>("get_call_token");
+}

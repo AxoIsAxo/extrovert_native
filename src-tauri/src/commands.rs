@@ -50,6 +50,13 @@ pub async fn auth_logout() -> Result<()> {
 }
 
 #[tauri::command]
+pub async fn get_call_token() -> Result<String> {
+    auth::get_access_token()
+        .map_err(|e| crate::error::Error::Other(e.to_string()))?
+        .ok_or(crate::error::Error::NotAuthenticated)
+}
+
+#[tauri::command]
 pub async fn auth_current_user(state: State<'_, ApiClient>) -> Result<Option<Account>> {
     let access_token = auth::get_access_token()
         .map_err(|e| crate::error::Error::Other(e.to_string()))?;

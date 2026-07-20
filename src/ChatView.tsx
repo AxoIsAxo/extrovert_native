@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { DirectMessage, Paginated } from "./lib/invoke";
 import { conversationMessages, conversationSend, e2eeUnlock, e2eeStatus } from "./lib/invoke";
+import { Call } from "./lib/webrtc";
 
 export default function ChatView({ username, onBack }: { username: string; onBack: () => void }) {
   const [data, setData] = useState<Paginated<DirectMessage>>({ data: [], pagination: { next: null } });
@@ -12,6 +13,7 @@ export default function ChatView({ username, onBack }: { username: string; onBac
   const [password, setPassword] = useState("");
   const [unlocking, setUnlocking] = useState(false);
   const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [isCalling, setIsCalling] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -24,6 +26,16 @@ export default function ChatView({ username, onBack }: { username: string; onBac
         setLoading(false);
       }
     });
+
+    const onDone = () => setIsCalling(false);
+    Call.on("call_connected", onDone);
+    Call.on("call_ended", onDone);
+    Call.on("call_declined", onDone);
+    return () => {
+      Call.off("call_connected", onDone);
+      Call.off("call_ended", onDone);
+      Call.off("call_declined", onDone);
+    };
   }, [username]);
 
   function loadMessages() {
@@ -112,7 +124,15 @@ export default function ChatView({ username, onBack }: { username: string; onBac
     <div className="flex flex-col min-h-0 flex-1">
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-outline-variant">
         <button onClick={onBack} className="text-on-surface-variant hover:text-on-surface transition-colors text-sm">← Back</button>
-        <span className="font-semibold text-sm">@{username}</span>
+        <span className="font-semibold text-sm flex-1">@{username}</span>
+        <button
+          onClick={() => { setIsCalling(true); Call.startCall(username); }}
+          disabled={isCalling}
+          className="px-2 py-1 rounded-full text-xs font-medium text-on-primary disabled:opacity-50 transition-opacity"
+          style={{ background: "var(--primary)" }}
+        >
+          {isCalling ? "..." : "Call"}
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">

@@ -98,6 +98,7 @@ pub fn run() {
             commands::e2ee_status,
             commands::fetch_avatar,
             commands::fetch_media,
+            commands::get_call_token,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -9,6 +9,7 @@ import ChatList from "./ChatList";
 import type { ChatEntry } from "./ChatList";
 import ChatView from "./ChatView";
 import RoomView from "./RoomView";
+import { CallProvider } from "./CallUI";
 
 type Screen = "loading" | "login" | "app";
 
@@ -206,6 +207,8 @@ export default function App() {
         )}
         {renderContent()}
       </div>
+
+      <CallProvider />
 
       <nav className="flex border-t border-outline-variant bg-surface-container-low" style={{ paddingBottom: '32px' }}>
         {([
