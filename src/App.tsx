@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { authLoginStart, authLogout, authCurrentUser, type Account } from "./lib/invoke";
+import { authLoginStart, authLogout, authCurrentUser, type Account, registerPushEndpoint } from "./lib/invoke";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import Timeline from "./Timeline";
@@ -60,6 +60,25 @@ export default function App() {
     return () => {
       unlisteners.forEach((fn) => fn());
     };
+  }, []);
+
+  // Register push endpoint with the server when it becomes available.
+  // The native MainActivity.kt injects window.__push_endpoint + dispatches a
+  // 'push-endpoint' custom event after reading the UnifiedPush distributor
+  // endpoint from SharedPreferences (written by ExtrovertPushReceiver.onNewEndpoint).
+  // If no endpoint is available yet (no distributor installed), this is a no-op
+  // — Phase 1 offline calling still works via ring-on-reconnect.
+  useEffect(() => {
+    function handleEndpoint(endpoint: string) {
+      if (endpoint) registerPushEndpoint(endpoint).catch(() => {});
+    }
+    if ((window as any).__push_endpoint) handleEndpoint((window as any).__push_endpoint);
+    const onEndpoint = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail) handleEndpoint(detail);
+    };
+    window.addEventListener("push-endpoint", onEndpoint as EventListener);
+    return () => window.removeEventListener("push-endpoint", onEndpoint as EventListener);
   }, []);
 
   // Poll for login state while on the login screen (handles deep-link

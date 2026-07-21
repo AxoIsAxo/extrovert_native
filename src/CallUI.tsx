@@ -7,6 +7,9 @@ export function CallProvider() {
   const [isCalling, setIsCalling] = useState(false);
   const [muted, setMuted] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
+  const [callingOffline, setCallingOffline] = useState<string | null>(null);
+  const [callUnanswered, setCallUnanswered] = useState<string | null>(null);
+  const [answerDisabled, setAnswerDisabled] = useState(false);
   const [timer, setTimer] = useState("00:00");
   const remoteAudio = useRef<HTMLAudioElement | null>(null);
   const ringingInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -14,37 +17,58 @@ export function CallProvider() {
   const callTimerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    Call.on("incoming_call", (username: string, displayName: string) => {
+    Call.on("incoming_call", (username: string, displayName: string, sdp?: string) => {
       setIncoming({ username, displayName });
+      setAnswerDisabled(!sdp);
       startRinging();
 
       ringingTimeout.current = setTimeout(() => {
         Call.declineCall();
         setIncoming(null);
+        setAnswerDisabled(false);
         stopRinging();
-      }, 30000);
+      }, 45000);
     });
 
     Call.on("calling", (_username: string) => {
       setIsCalling(true);
       setActiveCall(null);
+      setCallingOffline(null);
+      setCallUnanswered(null);
+    });
+
+    Call.on("calling_offline", (username: string) => {
+      setCallingOffline(username);
+    });
+
+    Call.on("call_unanswered", (username: string) => {
+      setCallUnanswered(username);
+      setCallingOffline(null);
+      setIsCalling(false);
+      setTimeout(() => setCallUnanswered(null), 4000);
     });
 
     Call.on("call_connected", (username: string) => {
       stopRinging();
       setIncoming(null);
+      setAnswerDisabled(false);
       setActiveCall({ username, displayName: username });
       setIsCalling(false);
       setCallError(null);
+      setCallingOffline(null);
+      setCallUnanswered(null);
       startCallTimer();
     });
 
     Call.on("call_ended", () => {
       stopRinging();
       setIncoming(null);
+      setAnswerDisabled(false);
       setActiveCall(null);
       setIsCalling(false);
       setMuted(false);
+      setCallingOffline(null);
+      setCallUnanswered(null);
       stopCallTimer();
       cleanupRemoteAudio();
     });
@@ -52,9 +76,12 @@ export function CallProvider() {
     Call.on("call_declined", () => {
       stopRinging();
       setIncoming(null);
+      setAnswerDisabled(false);
       setActiveCall(null);
       setIsCalling(false);
       setMuted(false);
+      setCallingOffline(null);
+      setCallUnanswered(null);
       stopCallTimer();
       cleanupRemoteAudio();
     });
@@ -164,10 +191,14 @@ export function CallProvider() {
         >
           <div className="text-2xl font-bold text-white">Incoming call...</div>
           <div className="text-lg" style={{ color: "var(--on-surface-variant)" }}>{incoming.displayName}</div>
+          {answerDisabled && (
+            <div className="text-sm" style={{ color: "var(--on-surface-variant)" }}>connecting…</div>
+          )}
           <div className="flex gap-4 mt-2">
             <button
               onClick={handleAnswer}
-              className="px-8 py-2.5 rounded-full font-semibold text-white text-sm"
+              disabled={answerDisabled}
+              className="px-8 py-2.5 rounded-full font-semibold text-white text-sm disabled:opacity-50"
               style={{ background: "#22c55e" }}
             >
               Answer
@@ -183,12 +214,16 @@ export function CallProvider() {
         </div>
       )}
 
-      {(activeCall || isCalling || callError) && (
+      {(activeCall || isCalling || callingOffline || callUnanswered || callError) && (
         <div className="flex items-center justify-between px-4 py-2.5 border-t gap-3" style={{ background: "var(--surface-container-high)", borderColor: "var(--outline-variant)" }}>
           {callError ? (
             <div className="flex-1">
               <div className="text-sm text-error">{callError}</div>
               <button onClick={() => setCallError(null)} className="text-xs text-on-surface-variant mt-0.5">Dismiss</button>
+            </div>
+          ) : callUnanswered ? (
+            <div className="flex-1">
+              <div className="text-sm text-on-surface-variant">{callUnanswered} didn't come online</div>
             </div>
           ) : (
             <>
@@ -196,7 +231,9 @@ export function CallProvider() {
             <span className="text-lg">📞</span>
             <div>
               <div className="font-semibold text-sm text-on-surface">
-                {isCalling ? `Calling...` : `In call with ${activeCall?.username || ""}`}
+                {callingOffline
+                  ? `Calling ${callingOffline}… (offline — will ring when they're back)`
+                  : isCalling ? `Calling...` : `In call with ${activeCall?.username || ""}`}
               </div>
               {activeCall && <div className="text-xs text-on-surface-variant">{timer}</div>}
             </div>

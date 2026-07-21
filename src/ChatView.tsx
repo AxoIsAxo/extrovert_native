@@ -31,10 +31,12 @@ export default function ChatView({ username, onBack }: { username: string; onBac
     Call.on("call_connected", onDone);
     Call.on("call_ended", onDone);
     Call.on("call_declined", onDone);
+    Call.on("call_unanswered", onDone);
     return () => {
       Call.off("call_connected", onDone);
       Call.off("call_ended", onDone);
       Call.off("call_declined", onDone);
+      Call.off("call_unanswered", onDone);
     };
   }, [username]);
 

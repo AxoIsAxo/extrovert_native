@@ -9,7 +9,9 @@ interface CallState {
   localStream: MediaStream | null;
   peerUsername: string | null;
   callStartTime: number | null;
-  pendingOffer: { username: string; sdp: string } | null;
+  pendingOffer: { username: string; sdp: string | undefined } | null;
+  pendingCall: string | null;
+  callWaitTimeout: ReturnType<typeof setTimeout> | null;
 }
 
 type EventHandler = (...args: any[]) => void;
@@ -26,6 +28,8 @@ const state: CallState = {
   peerUsername: null,
   callStartTime: null,
   pendingOffer: null,
+  pendingCall: null,
+  callWaitTimeout: null,
 };
 
 function on(event: string, fn: EventHandler) {
@@ -100,7 +104,49 @@ function handleMessage(msg: any) {
       state.callState = "ringing";
       state.peerUsername = msg.from;
       state.pendingOffer = { username: msg.from, sdp: msg.sdp };
-      emit("incoming_call", msg.from, msg.from_display || msg.from);
+      emit("incoming_call", msg.from, msg.from_display || msg.from, msg.sdp);
+      break;
+
+    case "callee_available":
+      if (state.callState === "calling" && state.peerUsername) {
+        produceOfferAndSend(state.peerUsername);
+      }
+      break;
+
+    case "calling_offline":
+      if (state.callState === "calling") {
+        state.pendingCall = msg.to;
+        emit("calling_offline", msg.to);
+        if (state.callWaitTimeout) clearTimeout(state.callWaitTimeout);
+        const waitMs = msg.expires_at ? Math.min(60000, Math.max(0, msg.expires_at - Date.now())) : 60000;
+        state.callWaitTimeout = setTimeout(() => {
+          state.callWaitTimeout = null;
+          if (state.callState === "calling" && state.pendingCall) {
+            emit("call_unanswered", state.pendingCall);
+            send({ type: "call_cancel", to: state.pendingCall });
+            endCallInternal();
+          }
+        }, waitMs);
+      }
+      break;
+
+    case "callee_ringing":
+      if (state.callWaitTimeout) { clearTimeout(state.callWaitTimeout); state.callWaitTimeout = null; }
+      state.pendingCall = null;
+      if (state.callState === "calling" && state.peerUsername) {
+        produceOfferAndSend(state.peerUsername);
+      }
+      break;
+
+    case "user_offline":
+      emit("call_declined", msg.from);
+      endCallInternal();
+      break;
+
+    case "call_unanswered":
+      if (state.callWaitTimeout) { clearTimeout(state.callWaitTimeout); state.callWaitTimeout = null; }
+      emit("call_unanswered", msg.to || msg.from);
+      endCallInternal();
       break;
 
     case "call_answered":
@@ -204,11 +250,7 @@ function setRemoteDescription(username: string, sdp: string) {
   pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(sdp))).catch(() => {});
 }
 
-async function startCall(username: string) {
-  if (state.callState !== "idle") return;
-  state.callState = "calling";
-  state.peerUsername = username;
-
+async function produceOfferAndSend(username: string) {
   try {
     await getMedia();
     const pc = createPeerConnection(username);
@@ -223,8 +265,16 @@ async function startCall(username: string) {
   }
 }
 
+async function startCall(username: string) {
+  if (state.callState !== "idle") return;
+  state.callState = "calling";
+  state.peerUsername = username;
+  send({ type: "call_request", to: username });
+  emit("calling", username);
+}
+
 async function answerCall() {
-  if (state.callState !== "ringing" || !state.pendingOffer) return;
+  if (state.callState !== "ringing" || !state.pendingOffer || !state.pendingOffer.sdp) return;
   const { username, sdp } = state.pendingOffer;
   state.pendingOffer = null;
 
@@ -255,10 +305,16 @@ function declineCall() {
 }
 
 function endCall() {
-  const peer = state.peerUsername || "";
-  send({ type: "call_end", to: peer });
-  emit("call_ended", peer);
-  endCallInternal();
+  if (state.pendingCall && Object.keys(state.peerConnections).length === 0) {
+    send({ type: "call_cancel", to: state.pendingCall });
+    emit("call_ended", state.pendingCall);
+    endCallInternal();
+  } else {
+    const peer = state.peerUsername || "";
+    send({ type: "call_end", to: peer });
+    emit("call_ended", peer);
+    endCallInternal();
+  }
 }
 
 function endCallInternal() {
@@ -266,6 +322,8 @@ function endCallInternal() {
   state.peerUsername = null;
   state.pendingOffer = null;
   state.callStartTime = null;
+  state.pendingCall = null;
+  if (state.callWaitTimeout) { clearTimeout(state.callWaitTimeout); state.callWaitTimeout = null; }
   Object.keys(state.peerConnections).forEach(closePeerConnection);
   state.peerConnections = {};
   if (state.localStream) {

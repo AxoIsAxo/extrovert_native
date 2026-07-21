@@ -50,6 +50,20 @@ pub async fn auth_logout() -> Result<()> {
 }
 
 #[tauri::command]
+pub async fn register_push_endpoint(
+    state: State<'_, ApiClient>,
+    endpoint: String,
+) -> Result<()> {
+    let _: serde_json::Value = state
+        .post("/api/v1/push/subscribe", &serde_json::json!({
+            "platform": "unifiedpush",
+            "endpoint": endpoint,
+        }))
+        .await?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_call_token() -> Result<String> {
     auth::get_access_token()
         .map_err(|e| crate::error::Error::Other(e.to_string()))?

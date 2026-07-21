@@ -215,3 +215,7 @@ export async function fetchMedia(path: string): Promise<string> {
 export async function getCallToken(): Promise<string> {
   return invoke<string>("get_call_token");
 }
+
+export async function registerPushEndpoint(endpoint: string): Promise<void> {
+  return invoke<void>("register_push_endpoint", { endpoint });
+}
