@@ -188,15 +188,15 @@ updating the CSP `connect-src`/`img-src` there too.
   Codeberg **Repository Secrets** and switch the build step to `--release` with
   the `KEYSTORE_*` env vars wired into `tauri.build.gradle.kts` / signing config.
 - **Kotlin heap**: the Tauri-generated `gradle.properties` defaults to
-  `org.gradle.jvmargs=-Xmx2048m`, which the Codeberg medium runner's container
-  OOM-kills instantly.  Use `sed` to replace that line (don't `cat >>`, which
-  creates duplicate keys and the JVM may use the first value).  We set
-  `-Xmx512m` (no metaspace/codecache limits — buildSrc compilation needs
-  >128 MiB metaspace) and use `kotlin.compiler.execution.strategy=daemon` so
-  the Kotlin compiler gets its own JVM (`kotlin.daemon.jvmargs=-Xmx256m` with
-  tight metaspace/codecache limits).  `GRADLE_OPTS` / `KOTLIN_DAEMON_JVM_OPTIONS`
-  env are removed — they set `-Dorg.gradle.jvmargs=...` as JVM system properties,
-  which don't affect daemon heap.  Keep in sync if re-added.
+  `org.gradle.jvmargs=-Xmx2048m`, which the Codeberg medium runner's ~1 GiB
+  container OOM-kills instantly.  Use `sed` to replace that line (don't `cat >>`,
+  which creates duplicate keys and the JVM may use the first value).  We set
+  `-Xmx448m` with `-XX:MaxMetaspaceSize=192m` and `-XX:-UseContainerSupport`
+  (the runner goes OOM at `-Xmx512m` with unlimited metaspace but survives at
+  `-Xmx384m`).  `kotlin.compiler.execution.strategy=in-process` is the safest
+  default for Android Kotlin; `daemon` doesn't reliably split into a separate
+  process for Tauri-generated projects.  Keep the `kotlin.daemon.jvmargs` line
+  but it may be ignored.
 
 ## Identifier / scheme notes
 

@@ -152,16 +152,16 @@ jobs:
           key: gradle-${{ hashFiles('src-tauri/gen/android/**/*.gradle.kts') }}
           restore-keys: gradle-
 
-      - name: Configure gradle for low-memory Kotlin (daemon, not in-process)
+      - name: Configure gradle for low-memory Kotlin
         run: |
-          sed -i 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx512m -Dfile.encoding=UTF-8/' src-tauri/gen/android/gradle.properties
+          sed -i 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx448m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=64m -XX:-UseContainerSupport -Dfile.encoding=UTF-8/' src-tauri/gen/android/gradle.properties
           cat >> src-tauri/gen/android/gradle.properties <<'EOF'
 
           org.gradle.daemon=false
           org.gradle.parallel=false
           org.gradle.workers.max=1
-          kotlin.daemon.jvmargs=-Xmx256m -XX:MaxMetaspaceSize=96m -XX:ReservedCodeCacheSize=32m -XX:+UseSerialGC
-          kotlin.compiler.execution.strategy=daemon
+          kotlin.daemon.jvmargs=-Xmx256m
+          kotlin.compiler.execution.strategy=in-process
           EOF
 
       - name: Install JS dependencies
