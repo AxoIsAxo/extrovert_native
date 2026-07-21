@@ -188,14 +188,14 @@ updating the CSP `connect-src`/`img-src` there too.
   Codeberg **Repository Secrets** and switch the build step to `--release` with
   the `KEYSTORE_*` env vars wired into `tauri.build.gradle.kts` / signing config.
 - **Kotlin heap**: `:app:compileUniversalDebugKotlin` OOMs (`Java heap space`)
-  if `org.gradle.jvmargs` is below ~1g — `kotlin.compiler.execution.strategy=in-process`
-  makes Kotlin share the Gradle JVM, so the heap has to cover both. We pin `-Xmx1g`
-  in both `gradle.properties` (via the heredoc step) and the `GRADLE_OPTS` /
-  `KOTLIN_DAEMON_JVM_OPTIONS` env on the build step — keep them in sync.
-  Going higher (e.g. `-Xmx2g`) causes the OS OOM killer to terminate the Gradle
-  JVM on the Codeberg medium runner. `org.gradle.workers.max=1` keeps memory
-  low; the gradle-distribution cache only saves on success, so the first run
-  after any cache-key change pays a ~3 min gradle download.
+  if `org.gradle.jvmargs` is below ~1g with `kotlin.compiler.execution.strategy=in-process`,
+  because Kotlin shares the Gradle JVM. But the runner's container OOM-kills any JVM
+  over ~600m heap. Solution: `kotlin.compiler.execution.strategy=daemon` so the
+  Kotlin compiler gets its own JVM. We pin `org.gradle.jvmargs=-Xmx512m` and
+  `kotlin.daemon.jvmargs=-Xmx256m` (both with metaspace/codecache limits) in
+  `gradle.properties`. `GRADLE_OPTS` and `KOTLIN_DAEMON_JVM_OPTIONS` env are
+  removed — they were setting `-Dorg.gradle.jvmargs=...` as system properties,
+  which doesn't affect the daemon heap. Keep them in sync if added back.
 
 ## Identifier / scheme notes
 

@@ -152,16 +152,16 @@ jobs:
           key: gradle-${{ hashFiles('src-tauri/gen/android/**/*.gradle.kts') }}
           restore-keys: gradle-
 
-      - name: Configure gradle for low memory + in-process Kotlin
+      - name: Configure gradle for low-memory Kotlin (daemon, not in-process)
         run: |
           cat >> src-tauri/gen/android/gradle.properties <<'EOF'
 
           org.gradle.daemon=false
           org.gradle.parallel=false
           org.gradle.workers.max=1
-          org.gradle.jvmargs=-Xmx1g
-          kotlin.daemon.jvmargs=-Xmx1g
-          kotlin.compiler.execution.strategy=in-process
+          org.gradle.jvmargs=-Xmx512m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -XX:+UseSerialGC
+          kotlin.daemon.jvmargs=-Xmx256m -XX:MaxMetaspaceSize=96m -XX:ReservedCodeCacheSize=32m -XX:+UseSerialGC
+          kotlin.compiler.execution.strategy=daemon
           EOF
 
       - name: Install JS dependencies
@@ -176,8 +176,6 @@ jobs:
           NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
           CARGO_PROFILE_DEV_DEBUG: "none"
           CARGO_PROFILE_DEV_INCREMENTAL: "false"
-          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx1g"
-          KOTLIN_DAEMON_JVM_OPTIONS: "-Xmx1g"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
