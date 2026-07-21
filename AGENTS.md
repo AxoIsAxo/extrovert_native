@@ -151,7 +151,13 @@ register in `lib.rs` (order matters — single-instance **first**, before
 deep-link), and if it has JS API add to `package.json` + `invoke.ts`-style
 wrapper where relevant. Config under `tauri.conf.json > plugins`. CSP is strict
 in `tauri.conf.json > app.security.csp` — adding new connect/img origins means
-updating the CSP `connect-src`/`img-src` there too.
+updating the CSP `connect-src`/`img-src` there too. **The WebSocket for calls
+(`wss://extrovert.redforged.eu/ws`) needs `wss://extrovert.redforged.eu` listed
+explicitly in `connect-src` — `https://` does NOT cover `wss://`, they're
+separate CSP schemes. Without it the signaling socket is silently blocked and
+calls never reach the recipient (caller just sees "Calling…" forever). The same
+CSP is copied into `src-tauri/gen/android/app/src/main/assets/tauri.conf.json`
+on `tauri android init`; re-apply the `wss://` entry there after re-init.**
 
 ## Android build notes
 
