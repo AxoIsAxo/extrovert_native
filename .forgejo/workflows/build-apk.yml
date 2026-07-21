@@ -154,12 +154,12 @@ jobs:
 
       - name: Configure gradle for low-memory Kotlin (daemon, not in-process)
         run: |
+          sed -i 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx512m -Dfile.encoding=UTF-8/' src-tauri/gen/android/gradle.properties
           cat >> src-tauri/gen/android/gradle.properties <<'EOF'
 
           org.gradle.daemon=false
           org.gradle.parallel=false
           org.gradle.workers.max=1
-          org.gradle.jvmargs=-Xmx512m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -XX:+UseSerialGC
           kotlin.daemon.jvmargs=-Xmx256m -XX:MaxMetaspaceSize=96m -XX:ReservedCodeCacheSize=32m -XX:+UseSerialGC
           kotlin.compiler.execution.strategy=daemon
           EOF

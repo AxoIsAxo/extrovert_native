@@ -187,15 +187,16 @@ updating the CSP `connect-src`/`img-src` there too.
   in the workflow too. To produce a signed release APK, add a keystore via
   Codeberg **Repository Secrets** and switch the build step to `--release` with
   the `KEYSTORE_*` env vars wired into `tauri.build.gradle.kts` / signing config.
-- **Kotlin heap**: `:app:compileUniversalDebugKotlin` OOMs (`Java heap space`)
-  if `org.gradle.jvmargs` is below ~1g with `kotlin.compiler.execution.strategy=in-process`,
-  because Kotlin shares the Gradle JVM. But the runner's container OOM-kills any JVM
-  over ~600m heap. Solution: `kotlin.compiler.execution.strategy=daemon` so the
-  Kotlin compiler gets its own JVM. We pin `org.gradle.jvmargs=-Xmx512m` and
-  `kotlin.daemon.jvmargs=-Xmx256m` (both with metaspace/codecache limits) in
-  `gradle.properties`. `GRADLE_OPTS` and `KOTLIN_DAEMON_JVM_OPTIONS` env are
-  removed — they were setting `-Dorg.gradle.jvmargs=...` as system properties,
-  which doesn't affect the daemon heap. Keep them in sync if added back.
+- **Kotlin heap**: the Tauri-generated `gradle.properties` defaults to
+  `org.gradle.jvmargs=-Xmx2048m`, which the Codeberg medium runner's container
+  OOM-kills instantly.  Use `sed` to replace that line (don't `cat >>`, which
+  creates duplicate keys and the JVM may use the first value).  We set
+  `-Xmx512m` (no metaspace/codecache limits — buildSrc compilation needs
+  >128 MiB metaspace) and use `kotlin.compiler.execution.strategy=daemon` so
+  the Kotlin compiler gets its own JVM (`kotlin.daemon.jvmargs=-Xmx256m` with
+  tight metaspace/codecache limits).  `GRADLE_OPTS` / `KOTLIN_DAEMON_JVM_OPTIONS`
+  env are removed — they set `-Dorg.gradle.jvmargs=...` as JVM system properties,
+  which don't affect daemon heap.  Keep in sync if re-added.
 
 ## Identifier / scheme notes
 
