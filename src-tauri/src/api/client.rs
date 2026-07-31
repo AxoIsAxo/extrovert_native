@@ -74,6 +74,16 @@ impl ApiClient {
         self.try_refresh().await
     }
 
+    /// Force a token refresh if the stored refresh token exists. Used by the
+    /// E2EE bridge (e2ee_refresh_token command) when the webview's fetch-based
+    /// calls hit a 401 — those don't go through ApiClient, so refresh can't be
+    /// transparent there.
+    pub async fn refresh_if_needed(&self) -> Result<()> {
+        let _guard = self.refresh_lock.lock().await;
+        let _ = self.try_refresh().await;
+        Ok(())
+    }
+
     pub async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
         self.rate_limiter.until_ready().await;
         let url = format!("{}{}", config::api_base(), path);

@@ -9,7 +9,9 @@ import ChatList from "./ChatList";
 import type { ChatEntry } from "./ChatList";
 import ChatView from "./ChatView";
 import RoomView from "./RoomView";
+import UnlockScreen from "./UnlockScreen";
 import { CallProvider } from "./CallUI";
+import { e2eeEnsureReady } from "./lib/e2ee";
 
 type Screen = "loading" | "login" | "app";
 
@@ -18,13 +20,30 @@ type Tab = "home" | "chats" | "profile";
 export default function App() {
   const [screen, setScreen] = useState<Screen>("loading");
   const [user, setUser] = useState<Account | null>(null);
+  const [unlocked, setUnlocked] = useState(false);
+  const [e2eeChecked, setE2eeChecked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [debug, setDebug] = useState<string[]>([]);
   const [tab, setTab] = useState<Tab>("home");
   const [composing, setComposing] = useState(false);
   const [profileId, setProfileId] = useState<string | null>(null);
   const [chatUsername, setChatUsername] = useState<string | null>(null);
+  const [chatOtherId, setChatOtherId] = useState<string | null>(null);
   const [roomId, setRoomId] = useState<string | null>(null);
+
+  // After login: prepare the Olm account. On a new device this either creates
+  // keys silently (no backup yet) or needs the login password to restore the
+  // server-side backup → unlock screen. Only then do chats/rooms work.
+  async function ensureE2ee() {
+    try {
+      const ready = await e2eeEnsureReady();
+      setUnlocked(ready);
+    } catch {
+      setUnlocked(false);
+    } finally {
+      setE2eeChecked(true);
+    }
+  }
 
   useEffect(() => {
     let unlisteners: (() => void)[] = [];
@@ -35,6 +54,7 @@ export default function App() {
         if (u) {
           setUser(u);
           setScreen("app");
+          ensureE2ee();
         } else {
           setScreen("login");
         }
@@ -91,6 +111,7 @@ export default function App() {
         if (u) {
           setUser(u);
           setScreen("app");
+          ensureE2ee();
         }
       } catch (e) {
         setError(`auth check failed: ${e}`);
@@ -113,6 +134,8 @@ export default function App() {
     try {
       await authLogout();
       setUser(null);
+      setUnlocked(false);
+      setE2eeChecked(false);
       setScreen("login");
     } catch (e) {
       setError(String(e));
@@ -127,6 +150,7 @@ export default function App() {
   function handleSelectChat(entry: ChatEntry) {
     if (entry.kind === "dm") {
       setChatUsername(entry.c.username);
+      setChatOtherId(entry.c.id);
       setRoomId(null);
     } else {
       setRoomId(entry.r.id);
@@ -188,15 +212,25 @@ export default function App() {
         }
         return <Timeline onNavigateProfile={handleNavigateProfile} onCompose={() => setComposing(true)} />;
       case "chats":
-        if (chatUsername) return <ChatView username={chatUsername} onBack={() => setChatUsername(null)} />;
-        if (roomId) return <RoomView id={roomId} onBack={() => setRoomId(null)} />;
-        return <ChatList onSelect={handleSelectChat} />;
+        if (chatUsername) return <ChatView username={chatUsername} otherId={chatOtherId || user!.id} onBack={() => setChatUsername(null)} myId={user!.id} />;
+        if (roomId) return <RoomView id={roomId} onBack={() => setRoomId(null)} myId={user!.id} unlocked={unlocked} />;
+        return <ChatList onSelect={handleSelectChat} myId={user!.id} unlocked={unlocked} />;
       case "profile":
         return profileId ? (
           <Profile id={profileId} onBack={() => setTab("home")} onNavigateProfile={handleNavigateProfile} />
         ) : null;
     }
   };
+
+  if (user && e2eeChecked && !unlocked) {
+    return (
+      <UnlockScreen
+        username={user.username}
+        onUnlocked={() => setUnlocked(true)}
+        onRetry={() => ensureE2ee()}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col" style={{ height: '100dvh' }}>

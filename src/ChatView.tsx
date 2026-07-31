@@ -1,77 +1,124 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DirectMessage, Paginated } from "./lib/invoke";
-import { conversationMessages, conversationSend, e2eeUnlock, e2eeStatus } from "./lib/invoke";
+import { conversationMessages, conversationSend, fetchMedia } from "./lib/invoke";
 import { Call } from "./lib/webrtc";
+import { e2eeDecryptDm, e2eeDecryptLegacyDm, e2eeEncryptDm, e2eeFetchBundle } from "./lib/e2ee";
 
-export default function ChatView({ username, onBack }: { username: string; onBack: () => void }) {
+interface LiveDmEvent {
+  type: string;
+  message: DirectMessage;
+  sender_curve: string | null;
+  from_username: string;
+  from_display: string;
+}
+
+export default function ChatView({ username, otherId, onBack, myId }: { username: string; otherId: string; onBack: () => void; myId: string }) {
   const [data, setData] = useState<Paginated<DirectMessage>>({ data: [], pagination: { next: null } });
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [e2eeReady, setE2eeReady] = useState<boolean | null>(null);
-  const [password, setPassword] = useState("");
-  const [unlocking, setUnlocking] = useState(false);
-  const [unlockError, setUnlockError] = useState<string | null>(null);
   const [isCalling, setIsCalling] = useState(false);
+  const [stickers, setStickers] = useState<Record<string, string>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
+  const otherCurveRef = useRef<string>("");
+
+  // Decrypt one message (olm via the shared bridge, legacy rsa via the same
+  // bridge; stickers pass through as media paths).
+  const decryptMessage = useCallback(
+    async (m: DirectMessage): Promise<string> => {
+      if (m.body.startsWith("/uploads/stickers/")) return m.body;
+      const proto = m.proto || "rsa";
+      if (proto === "olm") {
+        const isOwn = String(m.from_id) === myId;
+        try {
+          if (!otherCurveRef.current) {
+            const b = await e2eeFetchBundle(username);
+            otherCurveRef.current = b.identity_key || "";
+          }
+          return await e2eeDecryptDm(
+            { body: m.body, sender_ciphertext: m.sender_ciphertext || "" },
+            isOwn,
+            String(m.from_id === myId ? m.to_id : m.from_id),
+            otherCurveRef.current
+          );
+        } catch (e) {
+          console.warn("olm decrypt failed", m.id, e);
+          return "[unable to decrypt]";
+        }
+      }
+      const key = String(m.from_id) === myId ? m.key_for_sender : m.key_for_recipient;
+      if (m.body && key) {
+        try {
+          return await e2eeDecryptLegacyDm(m.body, key);
+        } catch (e) {
+          console.warn("legacy decrypt failed", m.id, e);
+        }
+      }
+      return m.body;
+    },
+    [myId, username]
+  );
+
+  const loadMessages = useCallback(() => {
+    setLoading(true);
+    conversationMessages(username)
+      .then((res) => {
+        setData(res);
+        Promise.all(res.data.map((m) => decryptMessage(m))).then((plain) => {
+          setData((prev) => ({
+            ...prev,
+            data: prev.data.map((m, i) => ({ ...m, body: plain[i] ?? m.body })),
+          }));
+        });
+      })
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoading(false));
+  }, [username, decryptMessage]);
 
   useEffect(() => {
-    e2eeStatus().then((ready) => {
-      if (ready) {
-        setE2eeReady(true);
-        loadMessages();
-      } else {
-        setE2eeReady(false);
-        setLoading(false);
-      }
-    });
+    otherCurveRef.current = "";
+    loadMessages();
 
     const onDone = () => setIsCalling(false);
     Call.on("call_connected", onDone);
     Call.on("call_ended", onDone);
     Call.on("call_declined", onDone);
     Call.on("call_unanswered", onDone);
+
+    // Live incoming DMs over the signaling socket (same WS as calls).
+    const onLiveDm = (ev: LiveDmEvent) => {
+      if (ev.from_username !== username) return;
+      decryptMessage(ev.message).then((plain) => {
+        const msg = { ...ev.message, body: plain };
+        setData((prev) => {
+          if (prev.data.some((m) => String(m.id) === String(msg.id))) return prev;
+          return { ...prev, data: [...prev.data, msg] };
+        });
+      });
+    };
+    Call.on("new_dm", onLiveDm as never);
+
     return () => {
       Call.off("call_connected", onDone);
       Call.off("call_ended", onDone);
       Call.off("call_declined", onDone);
       Call.off("call_unanswered", onDone);
+      Call.off("new_dm", onLiveDm as never);
     };
-  }, [username]);
-
-  function loadMessages() {
-    setLoading(true);
-    conversationMessages(username)
-      .then((res) => setData(res))
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }
+  }, [username, loadMessages, decryptMessage]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView(); }, [data.data]);
-
-  async function handleUnlock() {
-    if (!password.trim() || unlocking) return;
-    setUnlocking(true);
-    setUnlockError(null);
-    try {
-      await e2eeUnlock(password.trim());
-      setE2eeReady(true);
-      loadMessages();
-    } catch (e) {
-      setUnlockError(String(e));
-    } finally {
-      setUnlocking(false);
-    }
-  }
 
   async function handleSend() {
     if (!body.trim() || sending) return;
     setSending(true);
     try {
-      const msg = await conversationSend(username, body.trim());
+      const enc = await e2eeEncryptDm(body.trim(), otherId, username);
+      const msg = await conversationSend(username, "", "olm", enc.recipientCipher, enc.senderCipher);
+      const plain = await decryptMessage(msg);
       setBody("");
-      setData((prev) => ({ ...prev, data: [...prev.data, msg] }));
+      setData((prev) => ({ ...prev, data: [...prev.data, { ...msg, body: plain }] }));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -83,43 +130,30 @@ export default function ChatView({ username, onBack }: { username: string; onBac
     if (!data.pagination?.next) return;
     try {
       const older = await conversationMessages(username, data.pagination.next);
-      setData((prev) => ({ data: [...older.data, ...prev.data], pagination: older.pagination }));
+      const plain = await Promise.all(older.data.map((m) => decryptMessage(m)));
+      setData((prev) => ({
+        data: [...older.data.map((m, i) => ({ ...m, body: plain[i] ?? m.body })), ...prev.data],
+        pagination: older.pagination,
+      }));
     } catch {}
   }
 
-  if (e2eeReady === false) {
-    return (
-      <div className="flex flex-col min-h-0 flex-1">
-        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-outline-variant">
-          <button onClick={onBack} className="text-on-surface-variant hover:text-on-surface transition-colors text-sm">← Back</button>
-          <span className="font-semibold text-sm">@{username}</span>
-        </div>
-        <div className="flex-1 flex items-center justify-center px-6">
-          <div className="max-w-sm w-full text-center space-y-4">
-            <div className="w-12 h-12 mx-auto rounded-full bg-surface-container-high flex items-center justify-center text-lg">🔒</div>
-            <h3 className="font-semibold text-on-surface">Unlock End-to-End Encryption</h3>
-            <p className="text-sm text-on-surface-variant">Enter your password to decrypt your private key and enable secure messaging.</p>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleUnlock()}
-              placeholder="Password"
-              className="w-full bg-surface-container-low border border-outline-variant rounded-lg px-4 py-2.5 text-sm text-on-surface placeholder-on-surface-variant focus:outline-none focus:border-primary"
-            />
-            {unlockError && <div className="text-error text-sm">{unlockError}</div>}
-            <button
-              onClick={handleUnlock}
-              disabled={!password.trim() || unlocking}
-              className="w-full px-6 py-2.5 rounded-btn text-sm font-semibold text-on-primary disabled:opacity-50 transition-opacity"
-              style={{ background: "var(--primary)" }}
-            >
-              {unlocking ? "Unlocking…" : "Unlock"}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+  function isOwn(m: DirectMessage) {
+    return String(m.from_id) === myId;
+  }
+
+  // Sticker image: fetch through Rust (bearer token) and render a data URL.
+  function StickerImage({ path }: { path: string }) {
+    const [src, setSrc] = useState<string | null>(stickers[path] || null);
+    useEffect(() => {
+      if (src) return;
+      fetchMedia(path).then((d) => {
+        setSrc(d);
+        setStickers((prev) => ({ ...prev, [path]: d }));
+      }).catch(() => {});
+    }, [path, src]);
+    if (!src) return <div className="text-on-surface-variant text-xs italic">Sticker…</div>;
+    return <img src={src} alt="sticker" className="max-w-[160px] max-h-[160px] object-contain" />;
   }
 
   return (
@@ -146,17 +180,22 @@ export default function ChatView({ username, onBack }: { username: string; onBac
         )}
 
         {data.data.map((m) => (
-          <div key={m.id} className={`flex ${m.from_id === "me" ? "justify-end" : "justify-start"}`}>
+          <div key={m.id} className={`flex ${isOwn(m) ? "justify-end" : "justify-start"}`}>
             <div
               className={`max-w-[80%] px-3 py-2 rounded-lg text-sm ${
-                m.from_id === "me"
+                isOwn(m)
                   ? "bg-primary text-on-primary rounded-br-sm"
                   : "bg-surface-container-high text-on-surface rounded-bl-sm"
               }`}
             >
-              <p className="whitespace-pre-wrap break-words">{m.body}</p>
-              <p className={`text-[10px] mt-1 ${m.from_id === "me" ? "text-on-primary/60" : "text-on-surface-variant"}`}>
+              {m.body.startsWith("/uploads/stickers/") ? (
+                <StickerImage path={m.body} />
+              ) : (
+                <p className="whitespace-pre-wrap break-words">{m.body}</p>
+              )}
+              <p className={`text-[10px] mt-1 ${isOwn(m) ? "text-on-primary/60" : "text-on-surface-variant"}`}>
                 {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                {m.edited_at ? " · edited" : ""}
               </p>
             </div>
           </div>

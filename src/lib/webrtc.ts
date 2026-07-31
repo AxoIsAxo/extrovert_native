@@ -182,6 +182,11 @@ function handleMessage(msg: any) {
       emit("user_online", msg.username, msg.display_name);
       break;
 
+    case "new_dm":
+      // Live DM delivery: { message, sender_curve, from_username, from_display }
+      emit("new_dm", msg);
+      break;
+
     case "user_offline":
       emit("user_offline", msg.username);
       break;

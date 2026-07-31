@@ -1,9 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RoomDetail, RoomMessage, RoomChannel } from "./lib/invoke";
 import { roomDetail, roomMessages, roomSendMessage } from "./lib/invoke";
 import Avatar from "./Avatar";
+import { e2eeSyncRoomSessions, e2eeEncryptRoomMessage, e2eeDecryptRoomMessage } from "./lib/e2ee";
 
-export default function RoomView({ id, onBack }: { id: string; onBack: () => void }) {
+export default function RoomView({
+  id,
+  onBack,
+  myId,
+  unlocked,
+}: {
+  id: string;
+  onBack: () => void;
+  myId: string;
+  unlocked: boolean;
+}) {
   const [room, setRoom] = useState<RoomDetail | null>(null);
   const [activeChannel, setActiveChannel] = useState<RoomChannel | null>(null);
   const [messages, setMessages] = useState<RoomMessage[]>([]);
@@ -11,26 +22,56 @@ export default function RoomView({ id, onBack }: { id: string; onBack: () => voi
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [e2eeReady, setE2eeReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const decryptMessage = useCallback(
+    async (m: RoomMessage): Promise<string> => {
+      if (m.proto === "megolm" && m.ciphertext && m.group_session_id) {
+        try {
+          return await e2eeDecryptRoomMessage(room!.id, m.user_id, m.ciphertext, m.group_session_id);
+        } catch (e) {
+          console.warn("megolm decrypt failed", m.id, e);
+          return "[unable to decrypt]";
+        }
+      }
+      return m.body;
+    },
+    [room]
+  );
+
+  const applyPlaintext = useCallback((list: RoomMessage[]) => {
+    setMessages(list);
+    Promise.all(list.map((m) => decryptMessage(m))).then((plain) => {
+      setMessages(list.map((m, i) => ({ ...m, body: plain[i] ?? m.body })));
+    });
+  }, [decryptMessage]);
 
   useEffect(() => {
     setLoading(true);
     roomDetail(id)
-      .then((r) => {
+      .then(async (r) => {
         setRoom(r);
-        const first = r.channels[0] || null;
+        const first = (r.channels.filter((ch) => ch.type !== "voice")[0] || r.channels[0]) || null;
         setActiveChannel(first);
-        if (first) {
-          roomMessages(r.id, first.id).then((res) => {
-            setMessages(res.messages);
-            setNextCursor(res.next);
-          }).catch(() => {});
+        if (!first) return;
+        if (unlocked) {
+          try {
+            await e2eeSyncRoomSessions(r.id, Number(myId), (r.members || []).map((m) => ({ id: m.id })));
+            setE2eeReady(true);
+          } catch (e) {
+            setError(String(e));
+          }
         }
+        roomMessages(r.id, first.id).then((res) => {
+          applyPlaintext(res.messages);
+          setNextCursor(res.next);
+        }).catch((e) => setError(String(e)));
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, unlocked, myId, applyPlaintext]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView(); }, [messages]);
 
@@ -38,19 +79,20 @@ export default function RoomView({ id, onBack }: { id: string; onBack: () => voi
     setActiveChannel(ch);
     try {
       const res = await roomMessages(room!.id, ch.id);
-      setMessages(res.messages);
+      applyPlaintext(res.messages);
       setNextCursor(res.next);
     } catch {}
   }
 
   async function handleSend() {
-    if (!body.trim() || sending || !activeChannel) return;
+    if (!body.trim() || sending || !activeChannel || !e2eeReady) return;
     setSending(true);
     try {
-      await roomSendMessage(room!.id, activeChannel.id, body.trim());
+      const enc = await e2eeEncryptRoomMessage(room!.id, body.trim());
+      await roomSendMessage(room!.id, activeChannel.id, "", "megolm", enc.ciphertext, enc.group_session_id);
       setBody("");
       const res = await roomMessages(room!.id, activeChannel.id);
-      setMessages(res.messages);
+      applyPlaintext(res.messages);
       setNextCursor(res.next);
     } catch (e) {
       setError(String(e));
@@ -77,6 +119,7 @@ export default function RoomView({ id, onBack }: { id: string; onBack: () => voi
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-outline-variant">
         <button onClick={onBack} className="text-on-surface-variant hover:text-on-surface transition-colors text-sm">← Chats</button>
         <span className="font-semibold text-sm truncate">{room.name}</span>
+        {!e2eeReady && <span className="ml-auto text-[10px] text-on-surface-variant italic">encryption off</span>}
       </div>
 
       {room.channels.length > 1 && (
@@ -91,7 +134,7 @@ export default function RoomView({ id, onBack }: { id: string; onBack: () => voi
                   : "bg-surface-container-high text-on-surface-variant hover:text-on-surface"
               }`}
             >
-              # {ch.name}
+              {ch.type === "voice" ? "🔊" : "#"} {ch.name}
             </button>
           ))}
         </div>
@@ -129,15 +172,16 @@ export default function RoomView({ id, onBack }: { id: string; onBack: () => voi
           value={body}
           onChange={(e) => setBody(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleSend())}
-          placeholder={`Message #${activeChannel?.name || "channel"}`}
+          placeholder={e2eeReady ? `Message #${activeChannel?.name || "channel"}` : "Unlock encryption in settings…"}
           maxLength={5000}
-          className="flex-1 bg-surface-container-low border border-outline-variant rounded-full px-4 py-2 text-sm text-on-surface placeholder-on-surface-variant focus:outline-none focus:border-primary transition-colors"
+          disabled={!e2eeReady}
+          className="flex-1 bg-surface-container-low border border-outline-variant rounded-full px-4 py-2 text-sm text-on-surface placeholder-on-surface-variant focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
         />
         <button
           onClick={handleSend}
-          disabled={!body.trim() || sending}
+          disabled={!body.trim() || sending || !e2eeReady}
           className="px-4 py-2 rounded-full text-sm font-semibold text-on-primary disabled:opacity-50"
-          style={{ background: !body.trim() || sending ? "var(--primary-dim)" : "var(--primary)" }}
+          style={{ background: !body.trim() || sending || !e2eeReady ? "var(--primary-dim)" : "var(--primary)" }}
         >
           {sending ? "…" : "Send"}
         </button>

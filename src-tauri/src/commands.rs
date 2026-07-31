@@ -70,6 +70,26 @@ pub async fn get_call_token() -> Result<String> {
         .ok_or(crate::error::Error::NotAuthenticated)
 }
 
+// Current access token for the shared JS crypto bridge (window.ExtrovertE2EE).
+// Called by src/lib/e2ee.ts before crypto operations; Rust keeps the refresh
+// logic, the webview just consumes the token.
+#[tauri::command]
+pub async fn get_access_token() -> Result<String> {
+    auth::get_access_token()
+        .map_err(|e| crate::error::Error::Other(e.to_string()))?
+        .ok_or(crate::error::Error::NotAuthenticated)
+}
+
+// Force a token refresh via the refresh token, then return the new access
+// token. The E2EE bridge calls this after a 401 from the webview-side fetches.
+#[tauri::command]
+pub async fn e2ee_refresh_token(state: State<'_, ApiClient>) -> Result<String> {
+    state.refresh_if_needed().await?;
+    auth::get_access_token()
+        .map_err(|e| crate::error::Error::Other(e.to_string()))?
+        .ok_or(crate::error::Error::NotAuthenticated)
+}
+
 #[tauri::command]
 pub async fn auth_current_user(state: State<'_, ApiClient>) -> Result<Option<Account>> {
     let access_token = auth::get_access_token()
@@ -272,8 +292,28 @@ pub async fn conversation_send(
     state: State<'_, ApiClient>,
     username: String,
     body: String,
+    proto: Option<String>,
+    ciphertext: Option<String>,
+    sender_ciphertext: Option<String>,
 ) -> Result<DirectMessage> {
     let is_sticker = body.starts_with("/uploads/stickers/");
+
+    // Olm messages are encrypted by the shared JS bridge (window.ExtrovertE2EE
+    // in the webview); Rust only forwards the ciphertexts.
+    if proto.as_deref() == Some("olm") {
+        let ct = ciphertext.ok_or_else(|| crate::error::Error::E2ee("missing ciphertext".into()))?;
+        let sct = sender_ciphertext.ok_or_else(|| crate::error::Error::E2ee("missing sender_ciphertext".into()))?;
+        return state
+            .post(
+                &format!("/api/v1/conversations/{}/messages", username),
+                &serde_json::json!({
+                    "proto": "olm",
+                    "body": ct,
+                    "sender_ciphertext": sct,
+                }),
+            )
+            .await;
+    }
 
     if !is_sticker {
         let priv_key = e2ee::get_private_key()
@@ -417,7 +457,26 @@ pub async fn room_send_message(
     room_id: String,
     channel_id: String,
     body: String,
+    proto: Option<String>,
+    ciphertext: Option<String>,
+    group_session_id: Option<String>,
 ) -> Result<serde_json::Value> {
+    // Megolm messages are encrypted by the shared JS bridge; Rust forwards them.
+    if proto.as_deref() == Some("megolm") {
+        let ct = ciphertext.ok_or_else(|| crate::error::Error::E2ee("missing ciphertext".into()))?;
+        let gsid = group_session_id.ok_or_else(|| crate::error::Error::E2ee("missing group_session_id".into()))?;
+        return state
+            .post(
+                &format!("/api/v1/rooms/{}/channels/{}/messages", room_id, channel_id),
+                &serde_json::json!({
+                    "proto": "megolm",
+                    "body": "",
+                    "ciphertext": ct,
+                    "group_session_id": gsid,
+                }),
+            )
+            .await;
+    }
     state
         .post(
             &format!("/api/v1/rooms/{}/channels/{}/messages", room_id, channel_id),

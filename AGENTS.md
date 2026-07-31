@@ -134,14 +134,36 @@ rooms into one `ChatList` (WhatsApp-style); selecting yields a discriminated
 
 ## E2EE DMs
 
-- Private key wrapped with a KEK derived from the **user's login password** via
-  PBKDF2 (native app has no password — the user enters it to unlock, see
-  `e2ee_unlock`). State cached in `E2eeContext` (in-memory) after unlock.
-- Send: fetch recipient's public key, hybrid-encrypt (RSA-OAEP for the AES key),
-  store `key_for_sender` and `key_for_recipient` per message.
-- Receive: pick the matching key half based on `msg.from_id == user_id`. Don't
-  render encrypted ciphertext as a message body — decrypt first, fall back to
-  ciphertext only if decryption fails.
+- **Crypto runs in the webview, not Rust.** `src/vendor/` holds the web app's
+  Olm/Megolm implementation (IIFEs setting `window.ExtrovertE2EE`), synced from
+  the server repo with `npm run sync:web-crypto` (set `EXTV_WEB_REPO` if the
+  server repo isn't at `../extrovert`). **Never hand-edit vendored files** —
+  edit the server repo, then re-sync.
+- `src/vendor/bridge-config.js` sets `window.ExtrovertE2EEConfig =
+  {apiBase, olmWasmUrl, bearerToken}` before the crypto loads. Rust owns OAuth
+  + token refresh; `src/lib/e2ee.ts` (`withFreshToken`) injects the current
+  bearer token from `get_access_token` before every crypto op and retries once
+  via `e2ee_refresh_token` after a 401 (webview fetches can't refresh).
+- The server accepts the OAuth bearer on the web E2EE routes (`/chats/keys`,
+  `/chats/prekeys`, bundle, room session routes) — the bridge fetches those
+  directly with the token. CORS is open for Bearer-bearing requests.
+- Unlock flow: after login, `App.tsx` runs `e2eeEnsureReady()`; if false →
+  `UnlockScreen` calls `e2eeUnlock(password, username)` (recovers the server
+  backup with the login password). New devices with no backup get keys created
+  silently. Everything (chats, rooms, previews) is gated on `unlocked` in App.
+- Legacy RSA messages (`proto='rsa'`) decrypt through the same bridge
+  (`e2eeDecryptLegacyDm`). The old Rust `crypto/e2ee.rs` is no longer used by
+  the UI — leave it in place for reference.
+- Rooms: `e2eeSyncRoomSessions(roomId, myId, members)` needs the room's member
+  list (API `/api/v1/rooms/:id` returns `members`); sends go through Rust as
+  `proto=megolm` + ciphertext + group_session_id; incoming megolm messages are
+  decrypted in the webview and rendered as plain text.
+- `olm.wasm` lives in `public/` (Vite copies it to dist). CSP needs
+  `'wasm-unsafe-eval'` in `script-src` — in `tauri.conf.json` and again in the
+  Android copy after any `tauri android init`.
+- Live DMs arrive over the same signaling WS as calls (`new_dm` messages in
+  `webrtc.ts` → `Call.on("new_dm", ...)`), decrypted via the bridge.
+
 
 ## Tauri plugins in use
 

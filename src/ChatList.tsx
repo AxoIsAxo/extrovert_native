@@ -2,13 +2,23 @@ import { useEffect, useState } from "react";
 import type { Conversation, RoomSummary } from "./lib/invoke";
 import { conversationsList, roomsList } from "./lib/invoke";
 import Avatar from "./Avatar";
+import { e2eeDecryptDm, e2eeDecryptLegacyDm } from "./lib/e2ee";
 
 export type ChatEntry =
   | { kind: "dm"; c: Conversation }
   | { kind: "room"; r: RoomSummary };
 
-export default function ChatList({ onSelect }: { onSelect: (e: ChatEntry) => void }) {
+export default function ChatList({
+  onSelect,
+  myId,
+  unlocked,
+}: {
+  onSelect: (e: ChatEntry) => void;
+  myId: string;
+  unlocked: boolean;
+}) {
   const [entries, setEntries] = useState<ChatEntry[]>([]);
+  const [previews, setPreviews] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,10 +35,38 @@ export default function ChatList({ onSelect }: { onSelect: (e: ChatEntry) => voi
           .sort((a, b) => a.name.localeCompare(b.name))
           .map((r) => ({ kind: "room", r }));
         setEntries([...dms, ...rms]);
+        return convs;
       })
+      .then(decryptPreviews)
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, []);
+  }, [unlocked, myId]);
+
+  // Decrypt last-message previews client-side (same logic as the web /chats).
+  function decryptPreviews(convs: Conversation[]) {
+    if (!unlocked) return;
+    convs.forEach((c) => {
+      const lm = c.last_message;
+      if (!lm) return;
+      if (lm.startsWith("/uploads/stickers/")) {
+        setPreviews((prev) => ({ ...prev, [c.id]: "Sticker" }));
+        return;
+      }
+      const isOwn = String(c.last_from) === myId;
+      const p =
+        c.last_proto === "olm"
+          ? e2eeDecryptDm(
+              { body: lm, sender_ciphertext: c.last_sender_ciphertext || "" },
+              isOwn,
+              c.id,
+              c.sender_curve || ""
+            ).catch(() => "…")
+          : (isOwn ? c.last_key_for_sender : c.last_key_for_recipient)
+              ? e2eeDecryptLegacyDm(lm, (isOwn ? c.last_key_for_sender : c.last_key_for_recipient)!).catch(() => "…")
+              : Promise.resolve("…");
+      p.then((plain) => setPreviews((prev) => ({ ...prev, [c.id]: plain }))).catch(() => {});
+    });
+  }
 
   if (loading) return <div className="text-center text-on-surface-variant py-12">Loading…</div>;
   if (error) return <div className="text-error text-sm text-center py-4 px-4">{error}</div>;
@@ -57,8 +95,8 @@ export default function ChatList({ onSelect }: { onSelect: (e: ChatEntry) => voi
                     <span className="ml-auto bg-primary text-on-primary text-[10px] font-bold px-1.5 py-0.5 rounded-full">{e.c.unread}</span>
                   )}
                 </div>
-                {e.c.last_message && (
-                  <p className="text-on-surface-variant text-sm truncate mt-0.5">{e.c.last_message}</p>
+                {previews[e.c.id] && (
+                  <p className="text-on-surface-variant text-sm truncate mt-0.5">{previews[e.c.id]}</p>
                 )}
               </div>
             </button>

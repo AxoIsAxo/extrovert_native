@@ -43,6 +43,12 @@ export interface Conversation {
   last_message: string | null;
   last_at: number | null;
   unread: number;
+  last_from?: string | null;
+  last_proto?: string | null;
+  last_key_for_sender?: string | null;
+  last_key_for_recipient?: string | null;
+  last_sender_ciphertext?: string | null;
+  sender_curve?: string | null;
 }
 
 export interface DirectMessage {
@@ -54,6 +60,8 @@ export interface DirectMessage {
   edited_at: number | null;
   key_for_sender: string | null;
   key_for_recipient: string | null;
+  proto?: string | null;
+  sender_ciphertext?: string | null;
 }
 
 export interface RoomSummary {
@@ -71,6 +79,13 @@ export interface RoomChannel {
   type: string;
 }
 
+export interface RoomMember {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar: string | null;
+}
+
 export interface RoomDetail {
   id: string;
   name: string;
@@ -80,6 +95,7 @@ export interface RoomDetail {
   is_public: boolean;
   is_member: boolean;
   channels: RoomChannel[];
+  members?: RoomMember[];
 }
 
 export interface RoomMessage {
@@ -91,6 +107,9 @@ export interface RoomMessage {
   body: string;
   created_at: number;
   edited_at: number | null;
+  proto?: string | null;
+  ciphertext?: string | null;
+  group_session_id?: string | null;
 }
 
 export interface MessagesResponse {
@@ -167,9 +186,12 @@ export async function conversationMessages(
 
 export async function conversationSend(
   username: string,
-  body: string
+  body: string,
+  proto?: string,
+  ciphertext?: string,
+  senderCiphertext?: string
 ): Promise<DirectMessage> {
-  return invoke<DirectMessage>("conversation_send", { username, body });
+  return invoke<DirectMessage>("conversation_send", { username, body, proto, ciphertext, senderCiphertext });
 }
 
 export async function roomsList(): Promise<RoomSummary[]> {
@@ -191,9 +213,12 @@ export async function roomMessages(
 export async function roomSendMessage(
   roomId: string,
   channelId: string,
-  body: string
+  body: string,
+  proto?: string,
+  ciphertext?: string,
+  groupSessionId?: string
 ): Promise<void> {
-  await invoke("room_send_message", { roomId, channelId, body });
+  await invoke("room_send_message", { roomId, channelId, body, proto, ciphertext, groupSessionId });
 }
 
 export async function e2eeUnlock(password: string): Promise<void> {
@@ -214,6 +239,10 @@ export async function fetchMedia(path: string): Promise<string> {
 
 export async function getCallToken(): Promise<string> {
   return invoke<string>("get_call_token");
+}
+
+export async function getAccessToken(): Promise<string> {
+  return invoke<string>("get_access_token");
 }
 
 export async function registerPushEndpoint(endpoint: string): Promise<void> {

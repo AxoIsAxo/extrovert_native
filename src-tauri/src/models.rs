@@ -87,6 +87,18 @@ pub struct Conversation {
     pub last_message: Option<String>,
     pub last_at: Option<MsEpoch>,
     pub unread: i64,
+    #[serde(default)]
+    pub last_from: Option<String>,
+    #[serde(default)]
+    pub last_proto: Option<String>,
+    #[serde(default)]
+    pub last_key_for_sender: Option<String>,
+    #[serde(default)]
+    pub last_key_for_recipient: Option<String>,
+    #[serde(default)]
+    pub last_sender_ciphertext: Option<String>,
+    #[serde(default)]
+    pub sender_curve: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +115,10 @@ pub struct DirectMessage {
     pub edited_at: Option<MsEpoch>,
     pub key_for_sender: Option<String>,
     pub key_for_recipient: Option<String>,
+    #[serde(default)]
+    pub proto: Option<String>,
+    #[serde(default)]
+    pub sender_ciphertext: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +143,15 @@ pub struct RoomChannel {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub struct RoomMember {
+    pub id: String,
+    pub username: String,
+    pub display_name: String,
+    pub avatar: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct RoomDetail {
     pub id: String,
     pub name: String,
@@ -136,6 +161,8 @@ pub struct RoomDetail {
     pub is_public: bool,
     pub is_member: bool,
     pub channels: Vec<RoomChannel>,
+    #[serde(default)]
+    pub members: Vec<RoomMember>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,6 +176,12 @@ pub struct RoomMessage {
     pub body: String,
     pub created_at: MsEpoch,
     pub edited_at: Option<MsEpoch>,
+    #[serde(default)]
+    pub proto: Option<String>,
+    #[serde(default)]
+    pub ciphertext: Option<String>,
+    #[serde(default)]
+    pub group_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
