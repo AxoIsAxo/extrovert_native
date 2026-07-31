@@ -30,7 +30,7 @@ export default function RoomView({
     async (m: RoomMessage): Promise<string> => {
       if (m.proto === "megolm" && m.ciphertext && m.group_session_id) {
         try {
-          return await e2eeDecryptRoomMessage(room!.id, m.user_id, m.ciphertext, m.group_session_id);
+          return await e2eeDecryptRoomMessage(id, m.user_id, m.ciphertext, m.group_session_id);
         } catch (e) {
           console.warn("megolm decrypt failed", m.id, e);
           return "[unable to decrypt]";
@@ -38,7 +38,7 @@ export default function RoomView({
       }
       return m.body;
     },
-    [room]
+    [id]  // stable prop — never depend on `room` state here or the load effect loops
   );
 
   const applyPlaintext = useCallback((list: RoomMessage[]) => {
@@ -48,7 +48,11 @@ export default function RoomView({
     });
   }, [decryptMessage]);
 
+  const loadedRoomId = useRef<string | null>(null);
+
   useEffect(() => {
+    if (loadedRoomId.current === id) return;
+    loadedRoomId.current = id;
     setLoading(true);
     roomDetail(id)
       .then(async (r) => {
