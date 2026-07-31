@@ -161,6 +161,16 @@ rooms into one `ChatList` (WhatsApp-style); selecting yields a discriminated
 - `olm.wasm` lives in `public/` (Vite copies it to dist). CSP needs
   `'wasm-unsafe-eval'` in `script-src` — in `tauri.conf.json` and again in the
   Android copy after any `tauri android init`.
+- **Android APK asset gotcha**: the mobile build uses the brownfield pattern —
+  the CLI does NOT embed `dist/` into the .so (only the desktop build does).
+  `tauri android build` alone produces an APK with no `index.html` (blank app).
+  After `npm run build`, copy the frontend into the Android assets:
+  `cp -R dist/* src-tauri/gen/android/app/src/main/assets/` before
+  `tauri android build`. This dir is gitignored (build output).
+- **OLM_OPTIONS gotcha**: olm.js assigns `OLM_OPTIONS = opts` (sloppy-mode
+  implicit global). Vite bundles it as a strict ES module → ReferenceError.
+  bridge-config.js pre-declares `window.OLM_OPTIONS` so the assignment is legal.
+  Keep that line if bridge-config changes.
 - Live DMs arrive over the same signaling WS as calls (`new_dm` messages in
   `webrtc.ts` → `Call.on("new_dm", ...)`), decrypted via the bridge.
 
