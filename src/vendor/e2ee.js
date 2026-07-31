@@ -234,9 +234,9 @@
       selfOutbound ? Promise.resolve(selfOutbound) : loadOne('selfOutbound').then(function (s) { selfOutbound = s; }),
       selfInbound ? Promise.resolve(selfInbound) : loadOne('selfInbound').then(function (s) {
         selfInbound = s;
-        // The stored selfInbound IS the baseline: restore it so we can re-derive
-        // the whole history ratchet. (Re-encode from the same pickle.)
-        selfInboundBaseline = selfInbound.pickle(PICKLE_KEY);
+        // A fresh device has no self sessions yet (they're created on first
+        // send); there's nothing to restore as a baseline.
+        if (s) selfInboundBaseline = s.pickle(PICKLE_KEY);
         return s;
       }),
     ]);
