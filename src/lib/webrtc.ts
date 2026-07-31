@@ -82,10 +82,32 @@ async function connect() {
 
   ws.onclose = () => {
     cleanupAll();
-    scheduleReconnect();
+    if (!backgrounded) scheduleReconnect();
   };
 
   ws.onerror = () => {};
+}
+
+// When the app is backgrounded, drop the signaling connection entirely: the
+// server then treats the user as offline, which routes calls through the
+// pending-call + push path (full-screen ring via PushService) instead of an
+// invisible in-app ring. Reconnect on return to the foreground — the server
+// then delivers the pending call offer and the notification Answer auto-connects.
+let backgrounded = false;
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      backgrounded = true;
+      if (reconnectTimeout) { clearTimeout(reconnectTimeout); reconnectTimeout = null; }
+      if (ws) {
+        try { ws.close(1000, "backgrounded"); } catch {}
+        ws = null;
+      }
+    } else {
+      backgrounded = false;
+      connect();
+    }
+  });
 }
 
 function send(data: Record<string, unknown>) {

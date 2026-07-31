@@ -43,6 +43,11 @@ class MainActivity : TauriActivity() {
     val extras = intent?.extras ?: return
     if (extras.getBoolean("call_answer", false)) {
       pendingCallAnswer = true
+      // Dismiss the ring notification (posted by PushService).
+      try {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm?.cancel(RING_NOTIFICATION_ID)
+      } catch (_: Exception) {}
     }
     flushToWebview()
   }
@@ -52,7 +57,7 @@ class MainActivity : TauriActivity() {
     if (pendingCallAnswer) {
       pendingCallAnswer = false
       wv.evaluateJavascript(
-        "window.__call_answer=true; window.dispatchEvent(new Event('call-answer'))",
+        "window.__call_answer=true; try{localStorage.setItem('call_answer','1')}catch(e){}; window.dispatchEvent(new Event('call-answer'))",
         null
       )
     }
@@ -113,5 +118,6 @@ class MainActivity : TauriActivity() {
 
   companion object {
     private const val REQ_PERMISSIONS = 3001
+    private const val RING_NOTIFICATION_ID = 1001
   }
 }

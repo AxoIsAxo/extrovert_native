@@ -16,23 +16,50 @@ export function CallProvider() {
   const ringingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callTimerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoAnswer = useRef(false);
+  const incomingRef = useRef<{ username: string; displayName: string } | null>(null);
+
+  // Try to answer a call that is already ringing (e.g. the user tapped the
+  // notification's Answer while the in-app ring was up). Returns true if the
+  // answer actually started; false keeps the auto-answer armed for the offer
+  // that is still on its way.
+  function answerIfRinging(): boolean {
+    const st = Call.getState();
+    if (st.callState === "ringing" && st.pendingOffer?.sdp) {
+      autoAnswer.current = false;
+      stopRinging();
+      Call.answerCall();
+      return true;
+    }
+    return false;
+  }
 
   // Opened from the push notification's "Answer" button: MainActivity sets
-  // window.__call_answer + dispatches a 'call-answer' event. Once the offer
-  // arrives (after the signaling socket reconnects), answer automatically.
+  // window.__call_answer + localStorage + dispatches a 'call-answer' event.
+  // localStorage survives the webview being mid-load (blank page) when the
+  // intent arrives, so the answer still fires once React mounts.
   useEffect(() => {
-    const onAnswer = () => { autoAnswer.current = true; };
+    const onAnswer = () => {
+      autoAnswer.current = true;
+      answerIfRinging();
+    };
     window.addEventListener("call-answer", onAnswer);
     const w = window as unknown as { __call_answer?: boolean };
-    if (w.__call_answer) {
-      autoAnswer.current = true;
+    let armed = false;
+    try {
+      armed = !!w.__call_answer || localStorage.getItem("call_answer") === "1";
+    } catch {}
+    if (armed) {
       w.__call_answer = false;
+      try { localStorage.removeItem("call_answer"); } catch {}
+      autoAnswer.current = true;
+      answerIfRinging();
     }
     return () => window.removeEventListener("call-answer", onAnswer);
   }, []);
 
   useEffect(() => {
     Call.on("incoming_call", (username: string, displayName: string, sdp?: string) => {
+      incomingRef.current = { username, displayName };
       setIncoming({ username, displayName });
       setAnswerDisabled(!sdp);
       startRinging();
@@ -48,6 +75,8 @@ export function CallProvider() {
       ringingTimeout.current = setTimeout(() => {
         Call.declineCall();
         setIncoming(null);
+      incomingRef.current = null;
+        incomingRef.current = null;
         setAnswerDisabled(false);
         stopRinging();
       }, 45000);
@@ -74,6 +103,7 @@ export function CallProvider() {
     Call.on("call_connected", (username: string) => {
       stopRinging();
       setIncoming(null);
+      incomingRef.current = null;
       setAnswerDisabled(false);
       setActiveCall({ username, displayName: username });
       setIsCalling(false);
@@ -86,6 +116,7 @@ export function CallProvider() {
     Call.on("call_ended", () => {
       stopRinging();
       setIncoming(null);
+      incomingRef.current = null;
       setAnswerDisabled(false);
       setActiveCall(null);
       setIsCalling(false);
@@ -99,6 +130,7 @@ export function CallProvider() {
     Call.on("call_declined", () => {
       stopRinging();
       setIncoming(null);
+      incomingRef.current = null;
       setAnswerDisabled(false);
       setActiveCall(null);
       setIsCalling(false);
