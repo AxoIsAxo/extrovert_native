@@ -27,6 +27,7 @@ declare global {
     };
     ExtrovertE2EE?: {
       ensureReady(opts: { onNeedsPassword?: () => void }): Promise<boolean>;
+      initOlm(): Promise<void>;
       unlock(password: string, username: string): Promise<string>;
       encryptDm(
         plaintext: string,
@@ -105,9 +106,15 @@ export function isUnlocked(): boolean {
  * Silent key setup after login. Resolves true when the app can do crypto
  * immediately (existing device key). Resolves false when the account backup
  * needs the login password → show the unlock screen and call e2eeUnlock().
+ * Must init Olm first — the web app always does initOlm().then(ensureReady);
+ * without it, Olm.Account isn't constructed yet and ensureReady throws, which
+ * used to force the password screen on every restart.
  */
 export async function e2eeEnsureReady(): Promise<boolean> {
-  return withFreshToken(() => api().ensureReady({ onNeedsPassword: () => {} }));
+  return withFreshToken(async () => {
+    await api().initOlm();
+    return api().ensureReady({ onNeedsPassword: () => {} });
+  });
 }
 
 export async function e2eeUnlock(password: string, username: string): Promise<void> {
@@ -141,7 +148,10 @@ export async function e2eeFetchBundle(username: string): Promise<E2eeBundle> {
 }
 
 export async function e2eeSyncRoomSessions(roomId: string, myId: number, members: { id: number | string }[]): Promise<void> {
-  await withFreshToken(() => api().syncRoomSessions(roomId, myId, members).then(() => undefined));
+  await withFreshToken(async () => {
+    await api().initOlm();
+    await api().syncRoomSessions(roomId, myId, members).then(() => undefined);
+  });
 }
 
 export async function e2eeEncryptRoomMessage(
