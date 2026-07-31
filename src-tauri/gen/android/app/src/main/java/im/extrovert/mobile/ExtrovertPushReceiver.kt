@@ -29,9 +29,10 @@ class ExtrovertPushReceiver : MessagingReceiver() {
         val body = String(message, Charsets.UTF_8)
         val data = try { parseSimple(body) } catch (_: Exception) { return }
         val type = data["type"] ?: return
-        if (type == "call") {
-            val from = data["from_display"] ?: data["from"] ?: "Someone"
-            showCallNotification(context, from)
+        val from = data["from_display"] ?: data["from"] ?: "Someone"
+        when (type) {
+            "call" -> showCallNotification(context, from, data["cancel_token"])
+            "missed_call" -> showMissedCallNotification(context, from)
         }
     }
 
@@ -46,23 +47,25 @@ class ExtrovertPushReceiver : MessagingReceiver() {
         prefs.edit().remove(KEY_ENDPOINT).apply()
     }
 
-    private fun showCallNotification(context: Context, fromDisplayName: String) {
+    private fun showCallNotification(context: Context, fromDisplayName: String, cancelToken: String?) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureChannel(nm)
 
         val answerIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("call_answer", true)
+            if (cancelToken != null) putExtra("cancel_token", cancelToken)
         }
         val answerPending = PendingIntent.getActivity(
             context, REQ_ANSWER, answerIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val dismissIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        val dismissIntent = Intent(context, CallActionReceiver::class.java).apply {
+            action = "im.extrovert.mobile.DECLINE_CALL"
+            if (cancelToken != null) putExtra("cancel_token", cancelToken)
         }
-        val dismissPending = PendingIntent.getActivity(
+        val dismissPending = PendingIntent.getBroadcast(
             context, REQ_DISMISS, dismissIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -81,6 +84,29 @@ class ExtrovertPushReceiver : MessagingReceiver() {
             .setOngoing(true)
 
         nm.notify(NOTIFICATION_ID, builder.build())
+    }
+
+    private fun showMissedCallNotification(context: Context, fromDisplayName: String) {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        ensureChannel(nm)
+
+        val openIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val openPending = PendingIntent.getActivity(
+            context, REQ_MISSED_OPEN, openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_menu_call)
+            .setContentTitle("Missed call")
+            .setContentText("from $fromDisplayName")
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(openPending)
+
+        nm.notify(MISSED_NOTIFICATION_ID, builder.build())
     }
 
     private fun ensureChannel(nm: NotificationManager) {
@@ -111,8 +137,10 @@ class ExtrovertPushReceiver : MessagingReceiver() {
     companion object {
         private const val CHANNEL_ID = "extrovert_calls"
         private const val NOTIFICATION_ID = 1001
+        private const val MISSED_NOTIFICATION_ID = 1002
         private const val REQ_ANSWER = 2001
         private const val REQ_DISMISS = 2002
+        private const val REQ_MISSED_OPEN = 2003
         private const val CALL_TIMEOUT_MS = 120_000L  // 2 min, matches server PENDING_TTL
         const val PREFS_NAME = "extrovert_push"
         const val KEY_ENDPOINT = "push_endpoint"

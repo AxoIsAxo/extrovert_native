@@ -15,12 +15,35 @@ export function CallProvider() {
   const ringingInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const ringingTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callTimerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoAnswer = useRef(false);
+
+  // Opened from the push notification's "Answer" button: MainActivity sets
+  // window.__call_answer + dispatches a 'call-answer' event. Once the offer
+  // arrives (after the signaling socket reconnects), answer automatically.
+  useEffect(() => {
+    const onAnswer = () => { autoAnswer.current = true; };
+    window.addEventListener("call-answer", onAnswer);
+    const w = window as unknown as { __call_answer?: boolean };
+    if (w.__call_answer) {
+      autoAnswer.current = true;
+      w.__call_answer = false;
+    }
+    return () => window.removeEventListener("call-answer", onAnswer);
+  }, []);
 
   useEffect(() => {
     Call.on("incoming_call", (username: string, displayName: string, sdp?: string) => {
       setIncoming({ username, displayName });
       setAnswerDisabled(!sdp);
       startRinging();
+
+      if (autoAnswer.current && sdp) {
+        // User tapped Answer on the push notification — connect right away.
+        autoAnswer.current = false;
+        stopRinging();
+        Call.answerCall();
+        return;
+      }
 
       ringingTimeout.current = setTimeout(() => {
         Call.declineCall();
