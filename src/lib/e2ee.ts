@@ -147,3 +147,16 @@ export async function e2eeDecryptRoomMessage(
 ): Promise<string> {
   return withFreshToken(() => api().decryptRoomMessage(roomId, senderId, ciphertext, groupSessionId));
 }
+
+/** 12-digit safety number for a DM partner (same derivation as the web app). */
+export async function e2eeSafetyNumber(username: string): Promise<string | null> {
+  const bundle = await e2eeFetchBundle(username);
+  const my = api().myEd25519();
+  const their = bundle.ed25519_key;
+  if (!my || !their) return null;
+  const sorted = [my, their].sort().join("");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sorted));
+  let digits = "";
+  new Uint8Array(digest).forEach((b) => { digits += String(b % 10); });
+  return digits.slice(0, 12);
+}

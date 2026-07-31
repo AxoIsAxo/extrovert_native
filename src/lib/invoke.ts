@@ -202,6 +202,50 @@ export async function roomDetail(id: string): Promise<RoomDetail> {
   return invoke<RoomDetail>("room_detail", { id });
 }
 
+export interface Announcement {
+  body: string;
+  author_display_name: string | null;
+  author_username: string | null;
+  updated_at: number | null;
+}
+
+export async function getAnnouncement(): Promise<Announcement | null> {
+  return invoke<Announcement | null>("get_announcement");
+}
+
+export interface Comment {
+  id: string;
+  body: string;
+  created_at: number;
+  edited_at: number | null;
+  account: Account;
+}
+
+export async function postComments(statusId: string): Promise<Comment[]> {
+  return invoke<Comment[]>("post_comments", { statusId });
+}
+
+export async function createComment(statusId: string, body: string): Promise<Comment> {
+  return invoke<Comment>("create_comment", { statusId, body });
+}
+
+export async function getNotifications(cursor?: string, limit?: number): Promise<Paginated<Notification>> {
+  return invoke<Paginated<Notification>>("get_notifications", { cursor, limit });
+}
+
+export async function clearNotifications(): Promise<void> {
+  await invoke("clear_notifications");
+}
+
+export interface Notification {
+  id: string;
+  type: string;
+  created_at: number;
+  read: boolean;
+  account: Account;
+  post_id: string | null;
+}
+
 export async function roomMessages(
   roomId: string,
   channelId: string,

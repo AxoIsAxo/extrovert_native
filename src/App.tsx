@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { authLoginStart, authLogout, authCurrentUser, type Account, registerPushEndpoint } from "./lib/invoke";
+import { authLoginStart, authLogout, authCurrentUser, getAnnouncement, type Account, type Announcement, registerPushEndpoint } from "./lib/invoke";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import Timeline from "./Timeline";
@@ -10,6 +10,7 @@ import type { ChatEntry } from "./ChatList";
 import ChatView from "./ChatView";
 import RoomView from "./RoomView";
 import UnlockScreen from "./UnlockScreen";
+import NotificationsScreen from "./NotificationsScreen";
 import { CallProvider } from "./CallUI";
 import { e2eeEnsureReady } from "./lib/e2ee";
 
@@ -22,6 +23,8 @@ export default function App() {
   const [user, setUser] = useState<Account | null>(null);
   const [unlocked, setUnlocked] = useState(false);
   const [e2eeChecked, setE2eeChecked] = useState(false);
+  const [announcement, setAnnouncement] = useState<Announcement | null>(null);
+  const [announcementDismissed, setAnnouncementDismissed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [debug, setDebug] = useState<string[]>([]);
   const [tab, setTab] = useState<Tab>("home");
@@ -30,6 +33,7 @@ export default function App() {
   const [chatUsername, setChatUsername] = useState<string | null>(null);
   const [chatOtherId, setChatOtherId] = useState<string | null>(null);
   const [roomId, setRoomId] = useState<string | null>(null);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   // After login: prepare the Olm account. On a new device this either creates
   // keys silently (no backup yet) or needs the login password to restore the
@@ -80,6 +84,11 @@ export default function App() {
     return () => {
       unlisteners.forEach((fn) => fn());
     };
+  }, []);
+
+  // Server announcement banner (same content as the web top bar).
+  useEffect(() => {
+    getAnnouncement().then(setAnnouncement).catch(() => {});
   }, []);
 
   // Register push endpoint with the server when it becomes available.
@@ -200,6 +209,9 @@ export default function App() {
   }
 
   const renderContent = () => {
+    if (notificationsOpen) {
+      return <NotificationsScreen onClose={() => setNotificationsOpen(false)} />;
+    }
     switch (tab) {
       case "home":
         if (composing) {
@@ -246,6 +258,13 @@ export default function App() {
         </div>
         {user && (
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setNotificationsOpen((v) => !v)}
+              className="text-base text-on-surface-variant hover:text-on-surface transition-colors"
+              aria-label="Notifications"
+            >
+              🔔
+            </button>
             <span className="text-on-surface-variant text-xs">@{user.username}</span>
             <button onClick={handleLogout} className="text-xs text-on-surface-variant hover:text-on-surface transition-colors">
               Log out
@@ -257,6 +276,18 @@ export default function App() {
       <div className="flex-1 flex flex-col min-h-0">
         {error && (
           <div className="px-4 py-2 bg-error text-on-error text-xs text-center">{error}</div>
+        )}
+        {announcement && !announcementDismissed && (
+          <div className="flex items-start gap-3 px-4 py-2.5 bg-surface-container-high border-b border-outline-variant">
+            <p className="flex-1 text-xs text-on-surface whitespace-pre-wrap break-words">{announcement.body}</p>
+            <button
+              onClick={() => setAnnouncementDismissed(true)}
+              className="text-on-surface-variant hover:text-on-surface text-sm shrink-0"
+              aria-label="Dismiss announcement"
+            >
+              ✕
+            </button>
+          </div>
         )}
         {renderContent()}
       </div>

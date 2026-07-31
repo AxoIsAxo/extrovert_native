@@ -417,11 +417,72 @@ pub async fn e2ee_status() -> Result<bool> {
     Ok(e2ee::is_ready())
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct Comment {
+    pub id: String,
+    pub body: String,
+    pub created_at: i64,
+    pub edited_at: Option<i64>,
+    pub account: Account,
+}
+
+#[tauri::command]
+pub async fn post_comments(
+    state: State<'_, ApiClient>,
+    status_id: String,
+) -> Result<Vec<Comment>> {
+    let ctx: serde_json::Value = state.get(&format!("/api/v1/statuses/{}/context", status_id)).await?;
+    let descendants = ctx.get("descendants").cloned().unwrap_or(serde_json::Value::Array(vec![]));
+    Ok(serde_json::from_value(descendants).unwrap_or_default())
+}
+
+#[tauri::command]
+pub async fn create_comment(
+    state: State<'_, ApiClient>,
+    status_id: String,
+    body: String,
+) -> Result<Comment> {
+    state
+        .post(&format!("/api/v1/statuses/{}/comment", status_id), &serde_json::json!({ "body": body }))
+        .await
+}
+
+#[tauri::command]
+pub async fn get_notifications(
+    state: State<'_, ApiClient>,
+    cursor: Option<String>,
+    limit: Option<u32>,
+) -> Result<Paginated<Notification>> {
+    state
+        .get_with_query("/api/v1/notifications", &[("cursor", cursor), ("limit", limit.map(|l| l.to_string()))])
+        .await
+}
+
+#[tauri::command]
+pub async fn clear_notifications(state: State<'_, ApiClient>) -> Result<serde_json::Value> {
+    state.post("/api/v1/notifications/clear", &serde_json::json!({})).await
+}
+
 #[tauri::command]
 pub async fn rooms_list(
     state: State<'_, ApiClient>,
 ) -> Result<Vec<RoomSummary>> {
     state.get("/api/v1/rooms").await
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct Announcement {
+    pub body: String,
+    pub author_display_name: Option<String>,
+    pub author_username: Option<String>,
+    pub updated_at: Option<i64>,
+}
+
+#[tauri::command]
+pub async fn get_announcement(state: State<'_, ApiClient>) -> Result<Option<Announcement>> {
+    state.get("/api/v1/announcement").await
 }
 
 #[tauri::command]
