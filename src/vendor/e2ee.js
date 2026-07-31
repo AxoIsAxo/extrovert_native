@@ -64,7 +64,25 @@
   function enc(str) { return new TextEncoder().encode(str); }
   function dec(buf) { return new TextDecoder().decode(buf); }
 
-  // ---- IndexedDB ----
+  // ---- Storage ----
+  // The web app keeps crypto state in IndexedDB (non-extractable device key,
+  // one silent unlock per browser). Native clients opt into a file-backed
+  // store (window.ExtrovertE2EEStorage bridges to Rust fs) because Android
+  // WebView IndexedDB is not reliably persisted across app restarts — without
+  // it every app start would re-prompt for the password.
+  var USE_FILE_STORE = !!(NATIVE_CFG && NATIVE_CFG.fileStore);
+
+  function fileGet(storageKey) {
+    var s = window.ExtrovertE2EEStorage;
+    if (!s || !s.get) return Promise.resolve(null);
+    return Promise.resolve(s.get(storageKey));
+  }
+  function fileSet(storageKey, value) {
+    var s = window.ExtrovertE2EEStorage;
+    if (!s || !s.set) return Promise.reject(new Error('file storage bridge missing'));
+    return Promise.resolve(s.set(storageKey, value));
+  }
+
   function openDB() {
     var req = indexedDB.open(DB_NAME, 1);
     return new Promise(function (resolve, reject) {
@@ -77,6 +95,7 @@
     });
   }
   function idbGet(storeName, key) {
+    if (USE_FILE_STORE) return fileGet(storeName + ':' + key);
     return openDB().then(function (db) {
       return new Promise(function (resolve, reject) {
         var tx = db.transaction(storeName, 'readonly');
@@ -87,6 +106,7 @@
     });
   }
   function idbSet(storeName, key, value) {
+    if (USE_FILE_STORE) return fileSet(storeName + ':' + key, value);
     return openDB().then(function (db) {
       return new Promise(function (resolve, reject) {
         var tx = db.transaction(storeName, 'readwrite');
@@ -111,11 +131,28 @@
   // ---- Non-extractable device key Kd ----
   function getOrCreateDeviceKey() {
     return idbGet(STORE_CRYPTO, KEY_DEVICE).then(function (existing) {
-      if (existing) { deviceKey = existing; return deviceKey; }
+      if (existing) {
+        if (typeof existing === 'string') {
+          // File-backed store: the key was persisted as raw exported bytes.
+          return crypto.subtle.importKey('raw', b64ToUint8(existing), { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']).then(function (k) {
+            deviceKey = k;
+            return k;
+          });
+        }
+        deviceKey = existing;
+        return deviceKey;
+      }
       return crypto.subtle.generateKey(
-        { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+        { name: 'AES-GCM', length: 256 }, !!USE_FILE_STORE, ['encrypt', 'decrypt']
       ).then(function (key) {
         deviceKey = key;
+        if (USE_FILE_STORE) {
+          return crypto.subtle.exportKey('raw', key).then(function (raw) {
+            return uint8ToB64(new Uint8Array(raw));
+          }).then(function (b64) {
+            return idbSet(STORE_CRYPTO, KEY_DEVICE, b64).then(function () { return key; });
+          });
+        }
         return idbSet(STORE_CRYPTO, KEY_DEVICE, key).then(function () { return key; });
       });
     });

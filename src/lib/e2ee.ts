@@ -57,6 +57,18 @@ function cfg(): NonNullable<Window["ExtrovertE2EEConfig"]> {
   return window.ExtrovertE2EEConfig;
 }
 
+// File-backed crypto storage (Rust fs) — Android WebView IndexedDB isn't
+// reliably persisted, so without this the app would re-prompt for the
+// password on every start.
+function wireFileStorage(): void {
+  if ((window as unknown as { ExtrovertE2EEStorage?: unknown }).ExtrovertE2EEStorage) return;
+  (window as unknown as { ExtrovertE2EEStorage: unknown }).ExtrovertE2EEStorage = {
+    get: (key: string) => invoke<string | null>("e2ee_store_get", { key }),
+    set: (key: string, value: string) => invoke<void>("e2ee_store_set", { key, value }),
+  };
+}
+wireFileStorage();
+
 async function setBearer(): Promise<void> {
   cfg().bearerToken = await getAccessToken();
 }

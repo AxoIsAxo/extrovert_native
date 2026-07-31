@@ -1,6 +1,8 @@
 use base64::engine::general_purpose;
 use base64::Engine;
-use tauri::State;
+use std::collections::HashMap;
+use std::fs;
+use tauri::{Manager, State};
 
 use crate::api::{build_authorize_url, take_pending, verify_id_token, ApiClient};
 use crate::auth;
@@ -88,6 +90,49 @@ pub async fn e2ee_refresh_token(state: State<'_, ApiClient>) -> Result<String> {
     auth::get_access_token()
         .map_err(|e| crate::error::Error::Other(e.to_string()))?
         .ok_or(crate::error::Error::NotAuthenticated)
+}
+
+// ---- File-backed storage for the JS crypto bridge ----
+// Android WebView IndexedDB is not reliably persisted, so the Olm account +
+// session pickles (encrypted with the device key Kd) live in a JSON file in
+// the app data dir. Written atomically (tmp + rename). All values are small
+// base64 strings; a few hundred KB worst case.
+
+fn e2ee_store_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf> {
+    let dir = app.path().app_data_dir().map_err(|e| crate::error::Error::Other(e.to_string()))?;
+    fs::create_dir_all(&dir).map_err(|e| crate::error::Error::Other(e.to_string()))?;
+    Ok(dir.join("e2ee-store.json"))
+}
+
+fn e2ee_store_load(app: &tauri::AppHandle) -> Result<HashMap<String, String>> {
+    let path = e2ee_store_path(app)?;
+    if !path.exists() {
+        return Ok(HashMap::new());
+    }
+    let text = fs::read_to_string(&path).map_err(|e| crate::error::Error::Other(e.to_string()))?;
+    serde_json::from_str(&text).map_err(|e| crate::error::Error::Other(e.to_string()))
+}
+
+fn e2ee_store_save(app: &tauri::AppHandle, map: &HashMap<String, String>) -> Result<()> {
+    let path = e2ee_store_path(app)?;
+    let tmp = path.with_extension("tmp");
+    let text = serde_json::to_string(map).map_err(|e| crate::error::Error::Other(e.to_string()))?;
+    fs::write(&tmp, text).map_err(|e| crate::error::Error::Other(e.to_string()))?;
+    fs::rename(&tmp, &path).map_err(|e| crate::error::Error::Other(e.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn e2ee_store_get(app: tauri::AppHandle, key: String) -> Result<Option<String>> {
+    let map = e2ee_store_load(&app)?;
+    Ok(map.get(&key).cloned())
+}
+
+#[tauri::command]
+pub async fn e2ee_store_set(app: tauri::AppHandle, key: String, value: String) -> Result<()> {
+    let mut map = e2ee_store_load(&app)?;
+    map.insert(key, value);
+    e2ee_store_save(&app, &map)
 }
 
 #[tauri::command]

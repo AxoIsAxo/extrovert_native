@@ -11,4 +11,8 @@ window.ExtrovertE2EEConfig = {
   apiBase: "https://extrovert.redforged.eu",
   olmWasmUrl: "/olm.wasm",
   bearerToken: "",
+  // Persist crypto state via Rust fs instead of IndexedDB (Android WebView
+  // IndexedDB is not reliably persisted → would re-prompt for the password
+  // on every app start).
+  fileStore: true,
 };
