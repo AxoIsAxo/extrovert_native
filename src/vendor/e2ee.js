@@ -663,6 +663,14 @@
     });
   }
 
+  // A room's outbound session must also exist as an inbound session for the
+  // sender, or their own sent messages can never be decrypted.
+  function saveSelfGroupInbound(roomId, myId, outbound) {
+    var ig = new Olm.InboundGroupSession();
+    ig.create(outbound.session_key());
+    return saveGroupInbound(roomId, String(myId), String(outbound.session_id()), ig);
+  }
+
   // Room-scoped prekey bundle (no mutual-follower requirement).
   function fetchRoomBundle(roomId, username) {
     return e2eeFetch('/rooms/' + encodeURIComponent(roomId) + '/bundle/' + encodeURIComponent(username))
@@ -777,7 +785,9 @@
           if (joined.length) {
             var fresh = new Olm.OutboundGroupSession();
             fresh.create();
-            return shareRoomSession(roomId, fresh, others, allIds, true);
+            return saveSelfGroupInbound(roomId, myId, fresh).then(function () {
+              return shareRoomSession(roomId, fresh, others, allIds, true);
+            });
           }
           // Members who are covered but never got a real key (set up E2EE late) -> re-share.
           var needKey = others.filter(function (m) { return empty.indexOf(Number(m.id)) !== -1; });
@@ -788,7 +798,9 @@
         }
         var fresh = new Olm.OutboundGroupSession();
         fresh.create();
-        return shareRoomSession(roomId, fresh, others, allIds, true);
+        return saveSelfGroupInbound(roomId, myId, fresh).then(function () {
+          return shareRoomSession(roomId, fresh, others, allIds, true);
+        });
       });
     });
   }

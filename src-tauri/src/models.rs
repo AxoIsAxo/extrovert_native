@@ -26,6 +26,35 @@ where
     deserializer.deserialize_any(StringOrIntVisitor)
 }
 
+pub fn option_string_or_int<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    struct OptionStringOrIntVisitor;
+    impl de::Visitor<'_> for OptionStringOrIntVisitor {
+        type Value = Option<String>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a string, integer, or null")
+        }
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+            Ok(Some(v.to_owned()))
+        }
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<Self::Value, E> {
+            Ok(Some(v.to_string()))
+        }
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
+            Ok(Some(v.to_string()))
+        }
+        fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+        fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+    }
+    deserializer.deserialize_any(OptionStringOrIntVisitor)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Account {
@@ -87,7 +116,7 @@ pub struct Conversation {
     pub last_message: Option<String>,
     pub last_at: Option<MsEpoch>,
     pub unread: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "option_string_or_int")]
     pub last_from: Option<String>,
     #[serde(default)]
     pub last_proto: Option<String>,
