@@ -20,7 +20,7 @@ import org.unifiedpush.android.connector.MessagingReceiver
  */
 class ExtrovertPushReceiver : MessagingReceiver() {
 
-    override fun onNewEndpoint(context: Context, endpoint: String) {
+    override fun onNewEndpoint(context: Context, endpoint: String, instance: String) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString(KEY_ENDPOINT, endpoint).apply()
     }
@@ -35,13 +35,13 @@ class ExtrovertPushReceiver : MessagingReceiver() {
         }
     }
 
-    override fun onRegistrationFailed(context: Context, reason: Int) {
+    override fun onRegistrationFailed(context: Context, reason: String) {
         // Registration failed — user may not have a distributor installed.
         // Phase 1 offline calling still works (ring-on-reconnect + missed-call).
         android.util.Log.w("ExtrovertPush", "UnifiedPush registration failed: $reason")
     }
 
-    override fun onUnregistered(context: Context) {
+    override fun onUnregistered(context: Context, instance: String) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().remove(KEY_ENDPOINT).apply()
     }

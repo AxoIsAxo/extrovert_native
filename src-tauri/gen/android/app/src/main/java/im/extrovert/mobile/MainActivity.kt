@@ -12,7 +12,9 @@ class MainActivity : TauriActivity() {
     // Register with UnifiedPush (no-op if already registered; asks user to
     // pick a distributor if none is set). The distributor will call
     // ExtrovertPushReceiver.onNewEndpoint with the push endpoint URL.
-    UnifiedPush.register(this)
+    val instance = packageName
+    val features = ArrayList<String>().apply { add(UnifiedPush.FEATURE_BYTES_MESSAGE) }
+    UnifiedPush.registerApp(this, "extrovert", features, instance)
   }
 
   override fun onWebViewCreate(webView: WebView) {
