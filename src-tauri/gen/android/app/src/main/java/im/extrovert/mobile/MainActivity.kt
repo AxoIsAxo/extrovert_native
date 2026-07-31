@@ -3,13 +3,15 @@ package im.extrovert.mobile
 import android.Manifest
 import android.app.NotificationManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
-import org.unifiedpush.android.connector.UnifiedPush
+import androidx.core.content.ContextCompat
 
 class MainActivity : TauriActivity() {
   private var webView: WebView? = null
@@ -18,14 +20,13 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
-    // Register with UnifiedPush (no-op if already registered; asks user to
-    // pick a distributor if none is set). The distributor will call
-    // ExtrovertPushReceiver.onNewEndpoint with the push endpoint URL.
-    val instance = packageName
-    val features = ArrayList<String>().apply { add(UnifiedPush.FEATURE_BYTES_MESSAGE) }
-    UnifiedPush.registerApp(this, "extrovert", features, instance)
+
+    // Own push channel: a foreground service keeps a WS to the server so calls
+    // ring even when the app UI is closed (no Google, no third-party relay).
+    ContextCompat.startForegroundService(this, Intent(this, PushService::class.java))
 
     requestNotificationPermissions()
+    requestBatteryExemption()
     handleCallIntent(intent)
   }
 
@@ -60,28 +61,14 @@ class MainActivity : TauriActivity() {
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     this.webView = webView
-    // Inject the stored push endpoint into the webview so the TS side can
-    // register it with the server via /api/v1/push/subscribe.
-    val prefs = getSharedPreferences(ExtrovertPushReceiver.PREFS_NAME, MODE_PRIVATE)
-    val endpoint = prefs.getString(ExtrovertPushReceiver.KEY_ENDPOINT, null)
-    if (endpoint != null) {
-      injectEndpoint(webView, endpoint)
-    }
     flushToWebview()
-  }
-
-  private fun injectEndpoint(webView: WebView, endpoint: String) {
-    val escaped = endpoint.replace("\\", "\\\\").replace("'", "\\'")
-    webView.evaluateJavascript(
-      "window.__push_endpoint='$escaped'; window.dispatchEvent(new CustomEvent('push-endpoint', {detail:'$escaped'}))",
-      null
-    )
   }
 
   // Notifications on Android 13+ need a runtime permission; full-screen ring
   // on Android 14+ is denied by default and must be granted via Settings.
   private fun requestNotificationPermissions() {
-    if (Build.VERSION.SDK_INT >= 33) {
+    if (Build.VERSION.SDK_INT >= 33 &&
+        ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
       requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_PERMISSIONS)
     }
     if (Build.VERSION.SDK_INT >= 34) {
@@ -103,8 +90,27 @@ class MainActivity : TauriActivity() {
     }
   }
 
-  // Token-authenticated cancel endpoint — no OAuth needed, the token is a
-  // secret delivered only over the push channel.
+  // Always-on connections get killed by aggressive battery managers; ask once
+  // for the standard exemption (same as WhatsApp/Signal).
+  private fun requestBatteryExemption() {
+    try {
+      val pm = getSystemService(PowerManager::class.java)
+      if (pm != null && !pm.isIgnoringBatteryOptimizations(packageName)) {
+        val prefs = getSharedPreferences("extrovert_perms", MODE_PRIVATE)
+        if (!prefs.getBoolean("battery_prompted", false)) {
+          prefs.edit().putBoolean("battery_prompted", true).apply()
+          val intent = Intent(
+            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+            Uri.parse("package:$packageName")
+          )
+          try {
+            startActivity(intent)
+          } catch (_: Exception) {}
+        }
+      }
+    } catch (_: Exception) {}
+  }
+
   companion object {
     private const val REQ_PERMISSIONS = 3001
   }

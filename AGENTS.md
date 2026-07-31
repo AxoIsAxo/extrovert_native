@@ -174,6 +174,35 @@ rooms into one `ChatList` (WhatsApp-style); selecting yields a discriminated
 - Live DMs arrive over the same signaling WS as calls (`new_dm` messages in
   `webrtc.ts` → `Call.on("new_dm", ...)`), decrypted via the bridge.
 
+## Push / offline calls (no Google, no third-party relay)
+
+- **Own push channel**: `PushService.kt` is a foreground service holding a WS
+  to `wss://extrovert.redforged.eu/ws?token=…`; on open it sends
+  `{type:'push_register'}` (first message — this is what marks it a push
+  channel on the server; `webrtc-signaling.js` keeps push channels out of the
+  `clients` map so the user still counts as offline for calls).
+- Server (`sendWsPush` in webrtc-signaling.js) delivers `{type:'call', from,
+  from_display, cancel_token}` → full-screen ring notification (Answer →
+  MainActivity `call_answer` → auto-answer in CallUI; Decline → `CallActionReceiver`
+  → POST /push/cancel-pending, app stays closed). Unanswered after the server's
+  2-min TTL → `{type:'missed_call'}` notification.
+- Android forces always-on processes to show a notification: the service's
+  channel `extrovert_service` is IMPORTANCE_MIN ("Extrovert — Connected",
+  no sound). The call ring channel is `extrovert_calls` (IMPORTANCE_HIGH,
+  full-screen intent).
+- **Token handling**: the service reads `tokens.json` (Rust's OAuth store in
+  the app data root) and refreshes via `/api/v1/oauth/token` itself on WS
+  auth failure (1008/4401) — it must NOT rely on the Rust process (it may be
+  dead). Service is START_STICKY + restarted on boot (`BootReceiver`).
+- Removing ntfy/UnifiedPush: the connector dep, `ExtrovertPushReceiver`, and
+  the webview's push-endpoint registration were deleted; `push.js` on the
+  server only dispatches web-push (browsers).
+- **Debug gotcha**: `client.newWebSocket(...)` returns the socket — assign it
+  to the field or `sendJson` silently no-ops (hit this exact bug).
+- The `first message` role split on the server: `push_register` must set the
+  connection's `registered` flag or the next message (ping) registers the
+  push channel as a signaling client (hit this exact bug).
+
 
 ## Tauri plugins in use
 

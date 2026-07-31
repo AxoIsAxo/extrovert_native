@@ -7,6 +7,10 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -55,13 +59,24 @@
             android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- UnifiedPush receiver: receives push messages from the user's chosen
-             distributor (ntfy, Gotify, Nextcloud, etc.). No Google dependency. -->
+        <!-- Own push channel: always-on WS to the Extrovert server so calls
+             ring even when the app UI is closed. No Google, no relay. -->
+        <service
+            android:name=".PushService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="push" />
+        </service>
+
+        <!-- Restarts the push service after reboot / app update. -->
         <receiver
-            android:name=".ExtrovertPushReceiver"
+            android:name=".BootReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="org.unifiedpush.android.connector.MESSAGE" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 
