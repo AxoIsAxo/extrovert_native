@@ -2,6 +2,7 @@ use base64::engine::general_purpose;
 use base64::Engine;
 use std::collections::HashMap;
 use std::fs;
+use std::sync::{Mutex, OnceLock};
 use tauri::{Manager, State};
 
 use crate::api::{build_authorize_url, take_pending, verify_id_token, ApiClient};
@@ -97,6 +98,20 @@ pub async fn e2ee_refresh_token(state: State<'_, ApiClient>) -> Result<String> {
 // session pickles (encrypted with the device key Kd) live in a JSON file in
 // the app data dir. Written atomically (tmp + rename). All values are small
 // base64 strings; a few hundred KB worst case.
+//
+// IMPORTANT: the JS bridge fires several `e2ee_store_set` calls concurrently
+// (saveSelfSessions() writes selfOutbound + selfInbound in a Promise.all, and
+// saveAccount() runs alongside). Each handler is load-whole-file -> insert ->
+// save-whole-file, so without serialization one writer's insert is clobbered
+// by another writer's full-file save — the store silently loses keys (e.g.
+// `olm:selfInbound`), and after a restart the self-inbound session is gone,
+// making every own sent DM show "[unable to decrypt]". All store operations
+// therefore go through a single process-wide mutex. (The web app never hits
+// this because IndexedDB serializes transactions per object store.)
+fn e2ee_store_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 fn e2ee_store_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf> {
     let dir = app.path().app_data_dir().map_err(|e| crate::error::Error::Other(e.to_string()))?;
@@ -113,9 +128,16 @@ fn e2ee_store_load(app: &tauri::AppHandle) -> Result<HashMap<String, String>> {
     serde_json::from_str(&text).map_err(|e| crate::error::Error::Other(e.to_string()))
 }
 
+// Unique tmp name per writer: with a fixed "e2ee-store.tmp" two concurrent
+// writers can rename each other's in-flight file out from under the other.
+// Callers hold e2ee_store_lock(), so this is belt-and-braces, but it makes
+// the write path safe even if a future caller forgets the lock.
+static TMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn e2ee_store_save(app: &tauri::AppHandle, map: &HashMap<String, String>) -> Result<()> {
     let path = e2ee_store_path(app)?;
-    let tmp = path.with_extension("tmp");
+    let n = TMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_file_name(format!("e2ee-store.{}.{}.tmp", std::process::id(), n));
     let text = serde_json::to_string(map).map_err(|e| crate::error::Error::Other(e.to_string()))?;
     fs::write(&tmp, text).map_err(|e| crate::error::Error::Other(e.to_string()))?;
     fs::rename(&tmp, &path).map_err(|e| crate::error::Error::Other(e.to_string()))?;
@@ -124,12 +146,14 @@ fn e2ee_store_save(app: &tauri::AppHandle, map: &HashMap<String, String>) -> Res
 
 #[tauri::command]
 pub async fn e2ee_store_get(app: tauri::AppHandle, key: String) -> Result<Option<String>> {
+    let _guard = e2ee_store_lock().lock().unwrap_or_else(|p| p.into_inner());
     let map = e2ee_store_load(&app)?;
     Ok(map.get(&key).cloned())
 }
 
 #[tauri::command]
 pub async fn e2ee_store_set(app: tauri::AppHandle, key: String, value: String) -> Result<()> {
+    let _guard = e2ee_store_lock().lock().unwrap_or_else(|p| p.into_inner());
     let mut map = e2ee_store_load(&app)?;
     map.insert(key, value);
     e2ee_store_save(&app, &map)

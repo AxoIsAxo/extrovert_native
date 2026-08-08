@@ -1,0 +1,84 @@
+name: Build Android APK
+
+# Builds a debug APK after every push and uploads it as an artifact.
+# Mirrors the Forgejo workflow (see AGENTS.md "Android build notes"): the
+# android project lives in src-tauri/gen/android (committed, custom Kotlin),
+# so no `tauri android init` here — re-init would regenerate and clobber it.
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /opt/android-sdk
+      NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable + Android targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Android SDK (platform 36, build-tools 36.0.0, NDK 27.0.12077973)
+        run: |
+          set -euxo pipefail
+          sudo mkdir -p "$ANDROID_HOME"
+          cd /tmp
+          curl -fsSLo cmdtools.zip \
+            "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+          sudo unzip -q cmdtools.zip -d "$ANDROID_HOME/cmdline-tools"
+          sudo mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          yes | sudo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          sudo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.0.12077973" \
+            "platform-tools"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend (tsc + vite -> dist/)
+        run: npm run build
+
+      # Android uses the brownfield pattern: the CLI does NOT embed dist/ into
+      # the APK (only desktop does). Without this copy the APK has no index.html.
+      - name: Copy frontend into Android assets
+        run: |
+          mkdir -p src-tauri/gen/android/app/src/main/assets
+          cp -R dist/* src-tauri/gen/android/app/src/main/assets/
+
+      # Cap the Gradle JVM heap so the build survives memory-constrained
+      # runners (sed, not append — duplicate keys make the JVM pick the first).
+      - name: Cap Gradle heap
+        run: |
+          sed -i 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx448m -XX:MaxMetaspaceSize=192m -XX:-UseContainerSupport/' \
+            src-tauri/gen/android/gradle.properties
+          grep -n "^org.gradle.jvmargs" src-tauri/gen/android/gradle.properties
+
+      - name: Build debug APK
+        run: npx tauri android build --apk --debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extrovert-android-debug-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error

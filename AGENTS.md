@@ -171,6 +171,15 @@ rooms into one `ChatList` (WhatsApp-style); selecting yields a discriminated
   implicit global). Vite bundles it as a strict ES module → ReferenceError.
   bridge-config.js pre-declares `window.OLM_OPTIONS` so the assignment is legal.
   Keep that line if bridge-config changes.
+- **e2ee-store race gotcha**: the JS bridge fires several `e2ee_store_set`
+  invokes concurrently (`saveSelfSessions()` writes `selfOutbound` +
+  `selfInbound` in a `Promise.all`, `saveAccount()` alongside). The Rust
+  handler is load-whole-file → insert → save-whole-file, so without
+  serialization one writer's insert gets clobbered — the store loses keys
+  (e.g. `olm:selfInbound`) and after a restart **every own sent DM shows
+  "[unable to decrypt]"**. All store ops go through a process-wide mutex
+  (`e2ee_store_lock()` in `commands.rs`); keep it that way if you add store
+  commands. The web app never hits this (IndexedDB serializes per store).
 - Live DMs arrive over the same signaling WS as calls (`new_dm` messages in
   `webrtc.ts` → `Call.on("new_dm", ...)`), decrypted via the bridge.
 
