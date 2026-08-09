@@ -278,6 +278,21 @@ on `tauri android init`; re-apply the `wss://` entry there after re-init.**
   default for Android Kotlin; `daemon` doesn't reliably split into a separate
   process for Tauri-generated projects.  Keep the `kotlin.daemon.jvmargs` line
   but it may be ignored.
+- **GitHub Actions specifics** (`.github/workflows/build-apk.yml`, all learned
+  the hard way): (1) the runner image pre-sets
+  `ANDROID_SDK_ROOT=/usr/local/lib/android/sdk` — AGP 8.11 hard-fails on
+  mismatched `ANDROID_HOME`/`ANDROID_SDK_ROOT`, so both are set to the same
+  `/opt/android-sdk`. (2) ubuntu-latest (24.04) ships `/home/runner/.config`
+  **root-owned**, so AGP can't create its debug keystore
+  (`validateSigningUniversalDebug` fails with "Unable to create debug
+  keystore ... not writable") — set `ANDROID_USER_HOME` to a writable dir.
+  (3) job-level `env:` values are literal: `$VAR` is NOT expanded, and an
+  unquoted `${{ }}` expression there makes GitHub reject the workflow file
+  ("Invalid workflow file", no jobs) — use a plain absolute path. (4) AGP 8.11
+  defaults to Build Tools **35.0.0**, so install both 35.0.0 and 36.0.0
+  (relying on AGP's auto-download is flaky). (5) the runner image has no
+  `/opt/android-sdk` — the workflow installs SDK+NDK itself like the Forgejo
+  one.
 
 ## Identifier / scheme notes
 
