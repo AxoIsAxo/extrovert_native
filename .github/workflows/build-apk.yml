@@ -81,12 +81,16 @@ jobs:
           set -o pipefail
           npx tauri android build --apk --debug 2>&1 | tee /tmp/tauri-build.log || {
             echo "================ BUILD FAILED ================"
+            echo "---- system state ----"
+            nproc
+            free -h
+            df -h / | tail -1
+            echo "---- OOM evidence ----"
+            sudo dmesg 2>/dev/null | tail -60 | grep -iE "oom|killed process|out of memory" || echo "(no dmesg oom lines)"
             echo "---- last 60 lines ----"
             tail -60 /tmp/tauri-build.log
             echo "---- gradle error section ----"
             grep -A 20 "What went wrong" /tmp/tauri-build.log || true
-            echo "---- OOM / java errors ----"
-            grep -iE "outofmemory|metaspace|killed|exception" /tmp/tauri-build.log | tail -10 || true
             exit 1
           }
 
@@ -109,7 +113,9 @@ jobs:
             let tail = 'no log file';
             try {
               const log = fs.readFileSync('/tmp/tauri-build.log', 'utf8');
-              tail = log.split('\n').slice(-150).join('\n').slice(0, 3500);
+              // drop ANSI color codes, keep the last 500 lines (issue body cap ~60k chars)
+              const clean = log.replace(/\u001b\[[0-9;]*m/g, '');
+              tail = clean.split('\n').slice(-500).join('\n').slice(0, 50000);
             } catch (e) { tail = 'no log file: ' + e.message; }
             const body = '## tauri android build failed (`' + context.sha.slice(0, 7) + '`)\n```\n' + tail + '\n```';
             const issues = await github.rest.issues.listForRepo({ owner: context.repo.owner, repo: context.repo.repo, state: 'open' });
