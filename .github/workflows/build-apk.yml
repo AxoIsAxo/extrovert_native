@@ -36,7 +36,7 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Install Android SDK (platform 36, build-tools 36.0.0, NDK 27.0.12077973)
+      - name: Install Android SDK (platform 36, build-tools 35.0.0+36.0.0, NDK 27.0.12077973)
         run: |
           set -euxo pipefail
           sudo mkdir -p "$ANDROID_HOME"
@@ -48,6 +48,7 @@ jobs:
           yes | sudo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           sudo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "platforms;android-36" \
+            "build-tools;35.0.0" \
             "build-tools;36.0.0" \
             "ndk;27.0.12077973" \
             "platform-tools"
@@ -65,13 +66,11 @@ jobs:
           mkdir -p src-tauri/gen/android/app/src/main/assets
           cp -R dist/* src-tauri/gen/android/app/src/main/assets/
 
-      # Cap the Gradle JVM heap so the build survives memory-constrained
-      # runners (sed, not append — duplicate keys make the JVM pick the first).
-      - name: Cap Gradle heap
-        run: |
-          sed -i 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx448m -XX:MaxMetaspaceSize=192m -XX:-UseContainerSupport/' \
-            src-tauri/gen/android/gradle.properties
-          grep -n "^org.gradle.jvmargs" src-tauri/gen/android/gradle.properties
+      # NOTE: no Gradle heap cap here. The committed gradle.properties default
+      # (-Xmx2048m) is right for GitHub runners (16 GB RAM). The tiny
+      # -Xmx448m/-XX:MaxMetaspaceSize=192m caps tuned for the ~1 GiB Codeberg
+      # container make AGP 8.11 die with OutOfMemoryError: Metaspace on
+      # GitHub (Could not generate a decorated class for PackageApplication).
 
       - name: Build debug APK
         run: npx tauri android build --apk --debug

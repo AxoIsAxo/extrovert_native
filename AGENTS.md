@@ -269,7 +269,12 @@ on `tauri android init`; re-apply the `wss://` entry there after re-init.**
   which creates duplicate keys and the JVM may use the first value).  We set
   `-Xmx448m` with `-XX:MaxMetaspaceSize=192m` and `-XX:-UseContainerSupport`
   (the runner goes OOM at `-Xmx512m` with unlimited metaspace but survives at
-  `-Xmx384m`).  `kotlin.compiler.execution.strategy=in-process` is the safest
+  `-Xmx384m`).  **The tiny caps are Codeberg-specific — do NOT apply them on
+  GitHub Actions (16 GB runners): AGP 8.11 dies with
+  `OutOfMemoryError: Metaspace` ("Could not generate a decorated class for
+  PackageApplication") under `-XX:MaxMetaspaceSize=192m`, so
+  `.github/workflows/build-apk.yml` keeps the committed default and has no heap
+  step.**  `kotlin.compiler.execution.strategy=in-process` is the safest
   default for Android Kotlin; `daemon` doesn't reliably split into a separate
   process for Tauri-generated projects.  Keep the `kotlin.daemon.jvmargs` line
   but it may be ignored.
