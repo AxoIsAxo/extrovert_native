@@ -73,7 +73,27 @@ jobs:
       # GitHub (Could not generate a decorated class for PackageApplication).
 
       - name: Build debug APK
-        run: npx tauri android build --apk --debug
+        run: |
+          set -o pipefail
+          npx tauri android build --apk --debug 2>&1 | tee /tmp/tauri-build.log || {
+            echo "================ BUILD FAILED ================"
+            echo "---- last 60 lines ----"
+            tail -60 /tmp/tauri-build.log
+            echo "---- gradle error section ----"
+            grep -A 20 "What went wrong" /tmp/tauri-build.log || true
+            echo "---- OOM / java errors ----"
+            grep -iE "outofmemory|metaspace|killed|exception" /tmp/tauri-build.log | tail -10 || true
+            exit 1
+          }
+
+      # Even on failure, keep the full log so the error can be inspected.
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-build-log
+          path: /tmp/tauri-build.log
+          if-no-files-found: ignore
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
