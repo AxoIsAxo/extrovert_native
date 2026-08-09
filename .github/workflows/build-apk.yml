@@ -25,8 +25,9 @@ jobs:
       # ubuntu-24.04 runner images ship /home/runner/.config root-owned, so AGP
       # cannot create its debug keystore there (validateSigningUniversalDebug
       # fails with "Unable to create debug keystore ... not writable"). Point
-      # the keystore at the writable per-job temp dir.
-      ANDROID_USER_HOME: $RUNNER_TEMP/android-user-home
+      # the keystore at the writable per-job temp dir. NOTE: env values are
+      # literal — use the ${{ }} expression, not $VAR.
+      ANDROID_USER_HOME: ${{ runner.temp }}/android-user-home
       NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
     steps:
       - name: Checkout
